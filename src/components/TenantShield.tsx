@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getSupabase } from "@/lib/supabase";
-import { useChicagoData } from "@/hooks/useChicagoData";
+import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
 import CityRecords from "@/components/CityRecords";
 
 // ─── TYPES ───
@@ -507,6 +507,10 @@ export default function TenantShield() {
 
   const cityData = useChicagoData(
     view === "profile" && selected ? selected.addresses : null
+  );
+
+  const resultsCityData = useChicagoResultsCounts(
+    view === "results" && results.length > 0 ? results : null
   );
 
   // Load landlords from Supabase on mount
@@ -1189,30 +1193,41 @@ export default function TenantShield() {
                     </div>
                   </div>
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 16,
-                    marginTop: 12,
-                    paddingTop: 12,
-                    borderTop: "1px solid #f0f3f6",
-                  }}
-                >
-                  {ll.violations > 0 ? (
-                    <span style={{ fontSize: 12, color: "#cf222e" }}>
-                      ⚠ {ll.violations} building violations
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 12, color: "#1a7f37" }}>
-                      ✓ No violations on record
-                    </span>
-                  )}
-                  {ll.complaints > 0 && (
-                    <span style={{ fontSize: 12, color: "#bc4c00" }}>
-                      {ll.complaints} complaints filed
-                    </span>
-                  )}
-                </div>
+                {(() => {
+                  const rc = resultsCityData.counts[ll.id];
+                  const vCount = resultsCityData.loading ? null : rc?.violations ?? 0;
+                  const cCount = resultsCityData.loading ? null : rc?.complaints ?? 0;
+                  return (
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 16,
+                        marginTop: 12,
+                        paddingTop: 12,
+                        borderTop: "1px solid #f0f3f6",
+                      }}
+                    >
+                      {vCount === null ? (
+                        <span style={{ fontSize: 12, color: "#8b949e" }}>
+                          Loading records...
+                        </span>
+                      ) : vCount > 0 ? (
+                        <span style={{ fontSize: 12, color: "#cf222e" }}>
+                          ⚠ {vCount} building violations
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 12, color: "#1a7f37" }}>
+                          ✓ No violations on record
+                        </span>
+                      )}
+                      {cCount !== null && cCount > 0 && (
+                        <span style={{ fontSize: 12, color: "#bc4c00" }}>
+                          {cCount} complaints filed
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

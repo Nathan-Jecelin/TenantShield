@@ -17,6 +17,73 @@ export interface ChicagoData {
   retry: () => void;
 }
 
+export interface LandlordCounts {
+  violations: number;
+  complaints: number;
+}
+
+export interface ChicagoResultsCounts {
+  counts: Record<string, LandlordCounts>;
+  loading: boolean;
+}
+
+export function useChicagoResultsCounts(
+  landlords: { id: string; addresses: string[] }[] | null
+): ChicagoResultsCounts {
+  const [counts, setCounts] = useState<Record<string, LandlordCounts>>({});
+  const [loading, setLoading] = useState(false);
+  const lastKey = useRef<string>("");
+
+  useEffect(() => {
+    if (!landlords || landlords.length === 0) {
+      setCounts({});
+      lastKey.current = "";
+      return;
+    }
+    const key = landlords.map((l) => l.id).sort().join("|");
+    if (key === lastKey.current) return;
+    lastKey.current = key;
+
+    // Build address-to-landlord mapping
+    const addrToLandlord: Record<string, string[]> = {};
+    for (const ll of landlords) {
+      for (const raw of ll.addresses) {
+        const parsed = parseStreetAddress(raw);
+        if (!addrToLandlord[parsed]) addrToLandlord[parsed] = [];
+        addrToLandlord[parsed].push(ll.id);
+      }
+    }
+    const allParsed = Object.keys(addrToLandlord);
+
+    setLoading(true);
+    Promise.all([
+      fetchBuildingViolations(allParsed),
+      fetchServiceRequests(allParsed),
+    ])
+      .then(([violations, complaints]) => {
+        const result: Record<string, LandlordCounts> = {};
+        for (const ll of landlords) {
+          result[ll.id] = { violations: 0, complaints: 0 };
+        }
+        for (const v of violations) {
+          const ids = addrToLandlord[v.address?.toUpperCase()] || [];
+          for (const id of ids) result[id].violations++;
+        }
+        for (const c of complaints) {
+          const ids = addrToLandlord[c.street_address?.toUpperCase()] || [];
+          for (const id of ids) result[id].complaints++;
+        }
+        setCounts(result);
+      })
+      .catch(() => {
+        // Silently fail for results view — profile view has full error handling
+      })
+      .finally(() => setLoading(false));
+  }, [landlords]);
+
+  return { counts, loading };
+}
+
 export function useChicagoData(addresses: string[] | null): ChicagoData {
   const [violations, setViolations] = useState<BuildingViolation[]>([]);
   const [complaints, setComplaints] = useState<ServiceRequest[]>([]);
