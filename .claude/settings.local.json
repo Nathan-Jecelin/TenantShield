@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx supabase:*)",
+      "Bash(supabase --version:*)",
+      "WebFetch(domain:supabase.com)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b npx supabase projects list:*)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b npx supabase db execute:*)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b npx supabase:*)",
+      "Bash(python3 -c \" import sys, json sql = sys.stdin.read\\(\\) print\\(json.dumps\\({''query'': sql}\\)\\) \")",
+      "Bash(node -e \"\nconst fs = require\\(''fs''\\);\nconst sql = fs.readFileSync\\(''C:/Users/Nate/TenantShield/supabase/seed.sql'', ''utf8''\\);\nfs.writeFileSync\\(''/tmp/seed_payload.json'', JSON.stringify\\({query: sql}\\)\\);\nconsole.log\\(''Payload created, size:'', fs.statSync\\(''/tmp/seed_payload.json''\\).size, ''bytes''\\);\n\")",
+      "Bash(node -e \"\nconst fs = require\\(''fs''\\);\nconst path = require\\(''path''\\);\nconst os = require\\(''os''\\);\nconst sql = fs.readFileSync\\(''C:/Users/Nate/TenantShield/supabase/seed.sql'', ''utf8''\\);\nconst outPath = path.join\\(os.tmpdir\\(\\), ''seed_payload.json''\\);\nfs.writeFileSync\\(outPath, JSON.stringify\\({query: sql}\\)\\);\nconsole.log\\(''Payload created at:'', outPath\\);\n\")",
+      "Bash(curl -s -X POST \"https://api.supabase.com/v1/projects/betztqzcxjziidssiawm/database/query\" -H \"Authorization: Bearer sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b\" -H \"Content-Type: application/json\" -d @\"$LOCALAPPDATA/Temp/seed_payload.json\")",
+      "Bash(curl -s -X POST \"https://api.supabase.com/v1/projects/betztqzcxjziidssiawm/database/query\" -H \"Authorization: Bearer sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b\" -H \"Content-Type: application/json\" -d '{\"\"query\"\": \"\"SELECT slug, name, score_overall, review_count FROM landlords ORDER BY name;\"\"}')",
+      "Bash(curl -s -X POST \"https://api.supabase.com/v1/projects/betztqzcxjziidssiawm/database/query\" -H \"Authorization: Bearer sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b\" -H \"Content-Type: application/json\" -d '{\"\"query\"\": \"\"SELECT COUNT\\(*\\) as count FROM addresses;\"\"}')",
+      "Bash(curl -s -X POST \"https://api.supabase.com/v1/projects/betztqzcxjziidssiawm/database/query\" -H \"Authorization: Bearer sbp_832995744880d40ab08cadb1c1cbaa7c22b72c8b\" -H \"Content-Type: application/json\" -d '{\"\"query\"\": \"\"SELECT COUNT\\(*\\) as count FROM reviews;\"\"}')",
+      "Bash(npm run dev:*)",
+      "WebFetch(domain:data.cityofchicago.org)",
+      "WebFetch(domain:dev.socrata.com)",
+      "Bash(taskkill:*)",
+      "Bash(npx --yes playwright:*)",
+      "Bash(node:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npm root:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
