@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
+import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
 
 // ─── TYPES ───
@@ -306,11 +307,12 @@ async function searchLandlords(query: string): Promise<Landlord[]> {
 
 async function submitReviewToDb(
   landlordId: string,
-  form: ReviewForm
+  form: ReviewForm,
+  userId?: string
 ): Promise<boolean> {
   const { error } = await getSupabase()!.from("reviews").insert({
     landlord_id: landlordId,
-    author: "You",
+    author: "Anonymous Tenant",
     rating: form.overall,
     text: form.text,
     helpful: 0,
@@ -318,6 +320,7 @@ async function submitReviewToDb(
     communication: form.communication || null,
     deposit: form.deposit || null,
     honesty: form.honesty || null,
+    ...(userId ? { user_id: userId } : {}),
   });
   if (error) return false;
 
@@ -504,6 +507,17 @@ export default function TenantShield() {
     text: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupSuccess, setSignupSuccess] = useState(false);
+  const [returnView, setReturnView] = useState<string | null>(null);
+  const [userReviews, setUserReviews] = useState<
+    { review: Review; landlordName: string }[]
+  >([]);
+
+  const auth = useAuth();
 
   const cityData = useChicagoData(
     view === "profile" && selected ? selected.addresses : null
@@ -512,6 +526,61 @@ export default function TenantShield() {
   const resultsCityData = useChicagoResultsCounts(
     view === "results" && results.length > 0 ? results : null
   );
+
+  // Fetch user reviews when auth state changes
+  useEffect(() => {
+    if (!auth.user || !isSupabaseConfigured()) {
+      setUserReviews([]);
+      return;
+    }
+    (async () => {
+      const { data } = await getSupabase()!
+        .from("reviews")
+        .select("*, landlords(name)")
+        .eq("user_id", auth.user!.id)
+        .order("created_at", { ascending: false });
+      if (data && data.length > 0) {
+        setHasReviewed(true);
+        setUserReviews(
+          data.map((r: Record<string, unknown>) => ({
+            review: {
+              id: r.id as string,
+              author: r.author as string,
+              date: formatDate(r.created_at as string),
+              rating: r.rating as number,
+              text: r.text as string,
+              helpful: r.helpful as number,
+            },
+            landlordName:
+              (r.landlords as Record<string, unknown>)?.name as string ?? "Unknown",
+          }))
+        );
+      }
+    })();
+  }, [auth.user]);
+
+  // Handle returnView after OAuth redirect (Google sign-in)
+  useEffect(() => {
+    if (!auth.user) return;
+    const pending = localStorage.getItem("tenantshield_returnView");
+    if (pending) {
+      localStorage.removeItem("tenantshield_returnView");
+      if (pending === "review") {
+        setForm({
+          landlordName: "",
+          address: "",
+          maintenance: 0,
+          communication: 0,
+          deposit: 0,
+          honesty: 0,
+          overall: 0,
+          text: "",
+        });
+        setSubmitted(false);
+      }
+      setView(pending);
+    }
+  }, [auth.user]);
 
   // Load landlords from Supabase on mount
   useEffect(() => {
@@ -561,6 +630,11 @@ export default function TenantShield() {
 
   function goReview() {
     setShowGate(false);
+    if (!auth.user && isSupabaseConfigured()) {
+      setReturnView("review");
+      setView("login");
+      return;
+    }
     setForm({
       landlordName: "",
       address: "",
@@ -592,7 +666,7 @@ export default function TenantShield() {
 
     if (isSupabaseConfigured() && ex) {
       setLoading(true);
-      const ok = await submitReviewToDb(ex.id, form);
+      const ok = await submitReviewToDb(ex.id, form, auth.user?.id);
       if (ok) {
         // Refresh landlord data
         const updated = await fetchAllLandlords();
@@ -602,7 +676,7 @@ export default function TenantShield() {
     } else if (ex) {
       const nr: Review = {
         id: "r-u-" + Date.now(),
-        author: "You",
+        author: "Anonymous Tenant",
         date: formatDate(new Date().toISOString()),
         rating: form.overall,
         text: form.text,
@@ -632,6 +706,24 @@ export default function TenantShield() {
     fontFamily: "inherit",
     boxSizing: "border-box",
   };
+
+  if (auth.loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#f6f8fa",
+          fontFamily:
+            "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif",
+        }}
+      >
+        <span style={{ fontSize: 15, color: "#57606a" }}>Loading...</span>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -695,22 +787,92 @@ export default function TenantShield() {
               ✓ Full Access
             </span>
           )}
-          <button
-            onClick={goReview}
-            style={{
-              padding: "7px 16px",
-              background: "#1f6feb",
-              border: "none",
-              borderRadius: 6,
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            Write a Review
-          </button>
+          {auth.user ? (
+            <>
+              <button
+                onClick={() => setView("account")}
+                style={{
+                  padding: "7px 16px",
+                  background: "#f6f8fa",
+                  border: "1px solid #d0d7de",
+                  borderRadius: 6,
+                  color: "#1f2328",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Account
+              </button>
+              <button
+                onClick={async () => {
+                  await auth.signOut();
+                  setHasReviewed(false);
+                  setUserReviews([]);
+                }}
+                style={{
+                  padding: "7px 16px",
+                  background: "transparent",
+                  border: "1px solid #d0d7de",
+                  borderRadius: 6,
+                  color: "#57606a",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Log Out
+              </button>
+              <button
+                onClick={goReview}
+                style={{
+                  padding: "7px 16px",
+                  background: "#1f6feb",
+                  border: "none",
+                  borderRadius: 6,
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Write a Review
+              </button>
+            </>
+          ) : (
+            <>
+              <span
+                onClick={() => { auth.clearError(); setLoginEmail(""); setLoginPassword(""); setView("login"); }}
+                style={{
+                  fontSize: 13,
+                  color: "#57606a",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                Sign In
+              </span>
+              <button
+                onClick={goReview}
+                style={{
+                  padding: "7px 16px",
+                  background: "#1f6feb",
+                  border: "none",
+                  borderRadius: 6,
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Write a Review
+              </button>
+            </>
+          )}
         </div>
       </nav>
 
@@ -720,6 +882,7 @@ export default function TenantShield() {
             onClick={() => {
               if (view === "profile") setView("results");
               else if (view === "review" && selected) setView("profile");
+              else if (view === "login" || view === "signup" || view === "account") goHome();
               else goHome();
             }}
             style={{
@@ -1864,6 +2027,625 @@ export default function TenantShield() {
             </div>
           </div>
         ))}
+
+      {/* ─── LOGIN ─── */}
+      {view === "login" && (
+        <div
+          style={{
+            maxWidth: 380,
+            margin: "0 auto",
+            padding: "48px 20px 60px",
+          }}
+        >
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#1f6feb"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginBottom: 14 }}
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <h2
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: "#1f2328",
+                margin: "0 0 4px",
+              }}
+            >
+              Welcome back
+            </h2>
+            <p style={{ fontSize: 14, color: "#8b949e", margin: 0 }}>
+              Sign in to your TenantShield account
+            </p>
+          </div>
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 10,
+              background: "#fff",
+              padding: "28px 24px",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+            }}
+          >
+            {auth.error && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  background: "#ffebe9",
+                  border: "1px solid #ffcecb",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: "#cf222e",
+                  marginBottom: 16,
+                }}
+              >
+                {auth.error}
+              </div>
+            )}
+            <button
+              onClick={() => {
+                if (returnView) localStorage.setItem("tenantshield_returnView", returnView);
+                auth.signInWithGoogle();
+              }}
+              style={{
+                width: "100%",
+                padding: "11px 0",
+                background: "#fff",
+                border: "1px solid #d0d7de",
+                borderRadius: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                color: "#1f2328",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                transition: "background 0.15s, box-shadow 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f6f8fa";
+                e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.08)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#fff";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              Continue with Google
+            </button>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                margin: "20px 0",
+              }}
+            >
+              <div style={{ flex: 1, height: 1, background: "#e8ecf0" }} />
+              <span style={{ fontSize: 12, color: "#8b949e", fontWeight: 500 }}>or sign in with email</span>
+              <div style={{ flex: 1, height: 1, background: "#e8ecf0" }} />
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const ok = await auth.signIn(loginEmail, loginPassword);
+                if (ok) {
+                  if (returnView) {
+                    const rv = returnView;
+                    setReturnView(null);
+                    if (rv === "review") {
+                      setForm({
+                        landlordName: "",
+                        address: "",
+                        maintenance: 0,
+                        communication: 0,
+                        deposit: 0,
+                        honesty: 0,
+                        overall: 0,
+                        text: "",
+                      });
+                      setSubmitted(false);
+                    }
+                    setView(rv);
+                  } else {
+                    goHome();
+                  }
+                }
+              }}
+            >
+              <div style={{ marginBottom: 12 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#1f2328",
+                    marginBottom: 5,
+                  }}
+                >
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{ ...inp, borderRadius: 8 }}
+                  required
+                />
+              </div>
+              <div style={{ marginBottom: 18 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#1f2328",
+                    marginBottom: 5,
+                  }}
+                >
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Your password"
+                  style={{ ...inp, borderRadius: 8 }}
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                style={{
+                  width: "100%",
+                  padding: "11px 0",
+                  background: "#1f6feb",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#1a5fd4")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#1f6feb")}
+              >
+                Log In
+              </button>
+            </form>
+          </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: "#8b949e",
+              textAlign: "center",
+              marginTop: 20,
+              marginBottom: 0,
+            }}
+          >
+            Don&apos;t have an account?{" "}
+            <span
+              onClick={() => {
+                auth.clearError();
+                setSignupEmail("");
+                setSignupPassword("");
+                setSignupSuccess(false);
+                setView("signup");
+              }}
+              style={{
+                color: "#1f6feb",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Sign up
+            </span>
+          </p>
+        </div>
+      )}
+
+      {/* ─── SIGNUP ─── */}
+      {view === "signup" && (
+        <div
+          style={{
+            maxWidth: 380,
+            margin: "0 auto",
+            padding: "48px 20px 60px",
+          }}
+        >
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#1f6feb"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginBottom: 14 }}
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <h2
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: "#1f2328",
+                margin: "0 0 4px",
+              }}
+            >
+              Create your account
+            </h2>
+            <p style={{ fontSize: 14, color: "#8b949e", margin: 0 }}>
+              Join TenantShield and help other renters
+            </p>
+          </div>
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 10,
+              background: "#fff",
+              padding: "28px 24px",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+            }}
+          >
+            {signupSuccess ? (
+              <div
+                style={{
+                  padding: "24px 16px",
+                  background: "#dafbe1",
+                  border: "1px solid #aceebb",
+                  borderRadius: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    background: "#aceebb",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 12,
+                    fontSize: 20,
+                  }}
+                >
+                  ✓
+                </div>
+                <div
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: "#1a7f37",
+                    marginBottom: 6,
+                  }}
+                >
+                  Check your email
+                </div>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "#1a7f37",
+                    margin: "0 0 18px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  We sent a confirmation link to <strong>{signupEmail}</strong>. Click the link to activate your account.
+                </p>
+                <span
+                  onClick={() => {
+                    auth.clearError();
+                    setLoginEmail(signupEmail);
+                    setLoginPassword("");
+                    setView("login");
+                  }}
+                  style={{
+                    color: "#1f6feb",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    fontSize: 13,
+                  }}
+                >
+                  Go to Log In
+                </span>
+              </div>
+            ) : (
+              <>
+                {auth.error && (
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      background: "#ffebe9",
+                      border: "1px solid #ffcecb",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: "#cf222e",
+                      marginBottom: 16,
+                    }}
+                  >
+                    {auth.error}
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    if (returnView) localStorage.setItem("tenantshield_returnView", returnView);
+                    auth.signInWithGoogle();
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "11px 0",
+                    background: "#fff",
+                    border: "1px solid #d0d7de",
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    color: "#1f2328",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                    transition: "background 0.15s, box-shadow 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#f6f8fa";
+                    e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.08)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#fff";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                  Continue with Google
+                </button>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    margin: "20px 0",
+                  }}
+                >
+                  <div style={{ flex: 1, height: 1, background: "#e8ecf0" }} />
+                  <span style={{ fontSize: 12, color: "#8b949e", fontWeight: 500 }}>or sign up with email</span>
+                  <div style={{ flex: 1, height: 1, background: "#e8ecf0" }} />
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const ok = await auth.signUp(signupEmail, signupPassword);
+                    if (ok) setSignupSuccess(true);
+                  }}
+                >
+                  <div style={{ marginBottom: 12 }}>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#1f2328",
+                        marginBottom: 5,
+                      }}
+                    >
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      style={{ ...inp, borderRadius: 8 }}
+                      required
+                    />
+                  </div>
+                  <div style={{ marginBottom: 18 }}>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#1f2328",
+                        marginBottom: 5,
+                      }}
+                    >
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      style={{ ...inp, borderRadius: 8 }}
+                      required
+                      minLength={6}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    style={{
+                      width: "100%",
+                      padding: "11px 0",
+                      background: "#1f6feb",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#fff",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#1a5fd4")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "#1f6feb")}
+                  >
+                    Create Account
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+          {!signupSuccess && (
+            <p
+              style={{
+                fontSize: 13,
+                color: "#8b949e",
+                textAlign: "center",
+                marginTop: 20,
+                marginBottom: 0,
+              }}
+            >
+              Already have an account?{" "}
+              <span
+                onClick={() => {
+                  auth.clearError();
+                  setLoginEmail("");
+                  setLoginPassword("");
+                  setView("login");
+                }}
+                style={{
+                  color: "#1f6feb",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                Log in
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ─── ACCOUNT ─── */}
+      {view === "account" && auth.user && (
+        <div
+          style={{
+            maxWidth: 680,
+            margin: "0 auto",
+            padding: "24px 20px",
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "24px 28px",
+              marginBottom: 16,
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 20,
+                fontWeight: 700,
+                color: "#1f2328",
+                margin: "0 0 12px",
+              }}
+            >
+              Your Account
+            </h2>
+            <div style={{ fontSize: 14, color: "#424a53", marginBottom: 6 }}>
+              <span style={{ fontWeight: 600 }}>Email:</span> {auth.user.email}
+            </div>
+            <div style={{ fontSize: 13, color: "#8b949e" }}>
+              Member since{" "}
+              {new Date(auth.user.created_at).toLocaleDateString("en-US", {
+                month: "long",
+                year: "numeric",
+              })}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#1f2328",
+                margin: "0 0 16px",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
+            >
+              Your Reviews ({userReviews.length})
+            </h3>
+            {userReviews.length === 0 ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "36px 20px",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 15,
+                    color: "#57606a",
+                    marginBottom: 16,
+                  }}
+                >
+                  You haven&apos;t written any reviews yet.
+                </p>
+                <button
+                  onClick={goReview}
+                  style={{
+                    padding: "10px 22px",
+                    background: "#1f6feb",
+                    border: "none",
+                    borderRadius: 6,
+                    color: "#fff",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Write Your First Review
+                </button>
+              </div>
+            ) : (
+              userReviews.map((ur) => (
+                <div key={ur.review.id}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#1f6feb",
+                      paddingTop: 12,
+                    }}
+                  >
+                    {ur.landlordName}
+                  </div>
+                  <ReviewCard review={ur.review} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       <footer
         style={{
