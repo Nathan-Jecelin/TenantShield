@@ -85,6 +85,12 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatDateTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
 function isSupabaseConfigured(): boolean {
   return getSupabase() !== null;
 }
@@ -3450,7 +3456,7 @@ export default function TenantShield() {
                             </span>
                           )}
                           <span style={{ fontSize: 13, color: "#1f2328", fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.query}</span>
-                          <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", flexShrink: 0 }}>{formatDate(s.created_at)}</span>
+                          <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", flexShrink: 0 }}>{formatDateTime(s.created_at)}</span>
                         </div>
                       );
                     })
