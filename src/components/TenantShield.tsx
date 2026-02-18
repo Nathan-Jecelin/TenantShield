@@ -462,6 +462,7 @@ export default function TenantShield() {
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
   const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
   const [adminReviewPage, setAdminReviewPage] = useState(0);
   const [adminData, setAdminData] = useState<{
     searchCount7d: number;
@@ -503,6 +504,7 @@ export default function TenantShield() {
         .order("created_at", { ascending: false });
       if (data && data.length > 0) {
         setHasReviewed(true);
+        setShowWelcomeBanner(false);
         setUserReviews(
           data.map((r: Record<string, unknown>) => ({
             review: {
@@ -517,6 +519,8 @@ export default function TenantShield() {
               (r.landlords as Record<string, unknown>)?.name as string ?? "Unknown",
           }))
         );
+      } else {
+        setShowWelcomeBanner(true);
       }
     })();
   }, [auth.user]);
@@ -1056,6 +1060,43 @@ export default function TenantShield() {
       {/* ─── HOME ─── */}
       {view === "home" && (
         <div>
+          {showWelcomeBanner && auth.user && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 16,
+              padding: "14px 20px",
+              background: "linear-gradient(to right, #f0f6ff, #e8f4f8)",
+              borderBottom: "1px solid #d4e4fb",
+              flexWrap: "wrap",
+            }}>
+              <span style={{ fontSize: 14, color: "#1f2328" }}>
+                Welcome to TenantShield! Search an address or{" "}
+                <span
+                  onClick={goReview}
+                  style={{ color: "#1f6feb", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                >
+                  share your rental experience
+                </span>
+                {" "}to help other renters.
+              </span>
+              <button
+                onClick={() => setShowWelcomeBanner(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: 18,
+                  color: "#8b949e",
+                  cursor: "pointer",
+                  padding: "0 4px",
+                  lineHeight: 1,
+                }}
+              >
+                &times;
+              </button>
+            </div>
+          )}
           <div
             style={{
               padding: "80px 20px 60px",
@@ -3046,7 +3087,7 @@ export default function TenantShield() {
                     lineHeight: 1.5,
                   }}
                 >
-                  We sent a confirmation link to <strong>{signupEmail}</strong>. Click the link to activate your account, then log in to write your first review.
+                  We sent a confirmation link to <strong>{signupEmail}</strong>. Click the link to activate your account.
                 </p>
                 <span
                   onClick={() => {
@@ -3062,7 +3103,7 @@ export default function TenantShield() {
                     fontSize: 13,
                   }}
                 >
-                  Go to Log In &rarr;
+                  Go to Log In
                 </span>
               </div>
             ) : (
@@ -3084,7 +3125,7 @@ export default function TenantShield() {
                 )}
                 <button
                   onClick={() => {
-                    localStorage.setItem("tenantshield_returnView", returnView || "review");
+                    if (returnView) localStorage.setItem("tenantshield_returnView", returnView);
                     auth.signInWithGoogle();
                   }}
                   style={{
@@ -3132,10 +3173,7 @@ export default function TenantShield() {
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const ok = await auth.signUp(signupEmail, signupPassword);
-                    if (ok) {
-                      setSignupSuccess(true);
-                      setReturnView("review");
-                    }
+                    if (ok) setSignupSuccess(true);
                   }}
                 >
                   <div style={{ marginBottom: 12 }}>
