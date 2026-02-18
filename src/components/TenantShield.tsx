@@ -2437,34 +2437,38 @@ export default function TenantShield() {
             )}
           </div>
 
-          {/* CTA */}
+          {/* Review CTA */}
           <div
             style={{
-              border: "1px solid #e8ecf0",
-              borderRadius: 8,
-              background: "#fff",
-              padding: "28px",
+              border: "2px solid #d4e4fb",
+              borderRadius: 10,
+              background: "linear-gradient(to bottom, #f0f6ff, #fff)",
+              padding: "36px 28px",
               textAlign: "center",
             }}
           >
-            <p style={{ fontSize: 15, fontWeight: 600, color: "#1f2328", margin: "0 0 6px" }}>
-              Lived here? Share your experience.
+            <h3 style={{ fontSize: 19, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
+              Have you lived here?
+            </h3>
+            <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 8px", lineHeight: 1.6 }}>
+              Your experience helps other renters make informed decisions.
             </p>
-            <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 16px" }}>
-              No tenant reviews yet for this address. Be the first to help other renters.
+            <p style={{ fontSize: 13, color: "#8b949e", margin: "0 0 20px", lineHeight: 1.5 }}>
+              City records only tell part of the story. Share what it was actually like — maintenance response times, deposit fairness, communication, and more.
             </p>
             <button
               onClick={goReview}
               style={{
-                padding: "10px 22px",
+                padding: "14px 36px",
                 background: "#1f6feb",
                 border: "none",
-                borderRadius: 6,
+                borderRadius: 8,
                 color: "#fff",
-                fontSize: 14,
-                fontWeight: 600,
+                fontSize: 16,
+                fontWeight: 700,
                 cursor: "pointer",
                 fontFamily: "inherit",
+                boxShadow: "0 2px 8px rgba(31,111,235,0.3)",
               }}
             >
               Write a Review
@@ -3042,7 +3046,7 @@ export default function TenantShield() {
                     lineHeight: 1.5,
                   }}
                 >
-                  We sent a confirmation link to <strong>{signupEmail}</strong>. Click the link to activate your account.
+                  We sent a confirmation link to <strong>{signupEmail}</strong>. Click the link to activate your account, then log in to write your first review.
                 </p>
                 <span
                   onClick={() => {
@@ -3058,7 +3062,7 @@ export default function TenantShield() {
                     fontSize: 13,
                   }}
                 >
-                  Go to Log In
+                  Go to Log In &rarr;
                 </span>
               </div>
             ) : (
@@ -3080,7 +3084,7 @@ export default function TenantShield() {
                 )}
                 <button
                   onClick={() => {
-                    if (returnView) localStorage.setItem("tenantshield_returnView", returnView);
+                    localStorage.setItem("tenantshield_returnView", returnView || "review");
                     auth.signInWithGoogle();
                   }}
                   style={{
@@ -3128,7 +3132,10 @@ export default function TenantShield() {
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const ok = await auth.signUp(signupEmail, signupPassword);
-                    if (ok) setSignupSuccess(true);
+                    if (ok) {
+                      setSignupSuccess(true);
+                      setReturnView("review");
+                    }
                   }}
                 >
                   <div style={{ marginBottom: 12 }}>
