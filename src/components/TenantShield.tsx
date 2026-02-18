@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
+import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, BuildingViolation, ServiceRequest } from "@/lib/chicagoData";
 import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
+import { trackEvent } from "@/lib/analytics";
 
 // ─── TYPES ───
 
@@ -52,75 +54,7 @@ interface ReviewForm {
 
 // ─── SEED DATA (fallback when Supabase is not configured) ───
 
-const SEED_LANDLORDS: Landlord[] = [
-  {
-    id: "ll-001", slug: "ll-001", name: "Greystar Property Management",
-    addresses: ["1550 N Lake Shore Dr, Chicago, IL 60610", "2800 N Lake Shore Dr, Chicago, IL 60657"],
-    neighborhood: "Gold Coast / Lakeview", type: "Property Management Company",
-    scores: { maintenance: 2.1, communication: 1.8, deposit: 2.5, honesty: 1.9, overall: 2.1 },
-    reviewCount: 47, violations: 12, complaints: 23,
-    reviews: [
-      { id: "r1", author: "Former Tenant", date: "Nov 14, 2025", rating: 2, text: "Maintenance requests took 3+ weeks to address. The heating went out in January and they told me to 'use a space heater.' Security deposit was returned minus bogus charges for 'deep cleaning' despite leaving the unit spotless.", helpful: 34 },
-      { id: "r2", author: "Verified Renter", date: "Sep 22, 2025", rating: 1, text: "Listing showed renovated kitchen with new appliances. Moved in to find the same 1990s setup with a broken dishwasher. When I complained, they said the photos were from a 'model unit.' Total bait and switch.", helpful: 51 },
-      { id: "r3", author: "Anonymous Tenant", date: "Jul 3, 2025", rating: 3, text: "Location is great and the building itself is fine. Management is just slow and unresponsive. If nothing breaks, you're golden. The moment you need something fixed, good luck.", helpful: 18 },
-    ],
-  },
-  {
-    id: "ll-002", slug: "ll-002", name: "Lincoln Property Company",
-    addresses: ["225 N Columbus Dr, Chicago, IL 60601", "500 W Superior St, Chicago, IL 60654"],
-    neighborhood: "Streeterville / River North", type: "Property Management Company",
-    scores: { maintenance: 3.8, communication: 4.1, deposit: 3.5, honesty: 4.0, overall: 3.9 },
-    reviewCount: 31, violations: 2, complaints: 5,
-    reviews: [
-      { id: "r4", author: "Current Tenant", date: "Dec 1, 2025", rating: 4, text: "Pretty responsive management. Put in a work order for a leaky faucet and it was fixed the next day. Building amenities are well maintained. Only downside is the rent increases each year have been aggressive.", helpful: 22 },
-      { id: "r5", author: "Former Tenant", date: "Aug 15, 2025", rating: 4, text: "Good experience overall. Got my full deposit back within 30 days. The building was clean and well-managed. Would rent from them again.", helpful: 15 },
-    ],
-  },
-  {
-    id: "ll-003", slug: "ll-003", name: "Peak Properties",
-    addresses: ["3121 N Broadway, Chicago, IL 60657", "1415 W Diversey Pkwy, Chicago, IL 60614", "2644 N Ashland Ave, Chicago, IL 60614"],
-    neighborhood: "Lakeview / Lincoln Park", type: "Property Management Company",
-    scores: { maintenance: 1.5, communication: 1.2, deposit: 1.0, honesty: 1.3, overall: 1.2 },
-    reviewCount: 89, violations: 34, complaints: 56,
-    reviews: [
-      { id: "r6", author: "Verified Renter", date: "Jan 10, 2026", rating: 1, text: "DO NOT RENT FROM PEAK. They will find every excuse to keep your deposit. I documented the apartment condition with photos at move-in and move-out, and they still charged me $800 for 'damages' that were pre-existing. Had to threaten legal action to get any money back.", helpful: 89 },
-      { id: "r7", author: "Former Tenant", date: "Oct 28, 2025", rating: 1, text: "Roach infestation that they refused to properly treat for 4 months. They sent a guy with a can of Raid instead of a real exterminator. Multiple neighbors had the same issue. Also the laundry machines were broken for 6 weeks.", helpful: 67 },
-      { id: "r8", author: "Anonymous Tenant", date: "Jun 19, 2025", rating: 2, text: "They seem friendly at first but once you sign the lease, they become completely unresponsive. I called about a broken A/C in July and didn't get it fixed until September. By then, summer was over.", helpful: 41 },
-    ],
-  },
-  {
-    id: "ll-004", slug: "ll-004", name: "Beal Properties",
-    addresses: ["5050 N Sheridan Rd, Chicago, IL 60640", "4840 N Marine Dr, Chicago, IL 60640"],
-    neighborhood: "Uptown / Edgewater", type: "Property Management Company",
-    scores: { maintenance: 4.2, communication: 4.5, deposit: 4.7, honesty: 4.3, overall: 4.4 },
-    reviewCount: 22, violations: 0, complaints: 1,
-    reviews: [
-      { id: "r9", author: "Current Tenant", date: "Nov 30, 2025", rating: 5, text: "Honestly the best landlord I've had in Chicago. Maintenance requests are handled same-day. They actually care about the building. Rent is fair for the area. Full deposit returned promptly.", helpful: 28 },
-      { id: "r10", author: "Former Tenant", date: "May 12, 2025", rating: 4, text: "Very solid property management. Building was always clean, they communicated well about any building work, and the lease terms were straightforward with no hidden fees. Would recommend.", helpful: 19 },
-    ],
-  },
-  {
-    id: "ll-005", slug: "ll-005", name: "Planned Property Management",
-    addresses: ["2936 N Clark St, Chicago, IL 60657", "1639 W Fullerton Ave, Chicago, IL 60614"],
-    neighborhood: "Lakeview / DePaul Area", type: "Property Management Company",
-    scores: { maintenance: 2.8, communication: 2.5, deposit: 2.0, honesty: 2.7, overall: 2.5 },
-    reviewCount: 53, violations: 8, complaints: 19,
-    reviews: [
-      { id: "r11", author: "Verified Renter", date: "Dec 20, 2025", rating: 2, text: "Mixed experience. The apartment itself was nice but the management nickel-and-dimes you on everything. Charged me for 'new blinds' that were already broken when I moved in. Hard to get anyone on the phone.", helpful: 31 },
-      { id: "r12", author: "Anonymous Tenant", date: "Sep 5, 2025", rating: 3, text: "Average for Chicago. Not the worst, not the best. Maintenance is slow but they do eventually get to it. Just document everything and you'll be fine.", helpful: 12 },
-    ],
-  },
-  {
-    id: "ll-006", slug: "ll-006", name: "MCZ Development",
-    addresses: ["1460 N Sandburg Terrace, Chicago, IL 60610"],
-    neighborhood: "Near North Side", type: "Developer / Manager",
-    scores: { maintenance: 3.5, communication: 3.2, deposit: 3.8, honesty: 3.6, overall: 3.5 },
-    reviewCount: 15, violations: 3, complaints: 7,
-    reviews: [
-      { id: "r13", author: "Current Tenant", date: "Oct 10, 2025", rating: 4, text: "Decent building, good location. Maintenance could be faster but they're generally fair. Got most of my deposit back. No major complaints.", helpful: 8 },
-    ],
-  },
-];
+const SEED_LANDLORDS: Landlord[] = [];
 
 // ─── HELPERS ───
 
@@ -485,6 +419,8 @@ function ReviewCard({ review }: { review: Review }) {
   );
 }
 
+const ADMIN_EMAIL = "njecelin17@gmail.com";
+
 // ─── MAIN COMPONENT ───
 
 export default function TenantShield() {
@@ -516,8 +452,31 @@ export default function TenantShield() {
   const [userReviews, setUserReviews] = useState<
     { review: Review; landlordName: string }[]
   >([]);
+  const [addressResult, setAddressResult] = useState<{
+    address: string;
+    violations: BuildingViolation[];
+    complaints: ServiceRequest[];
+  } | null>(null);
+  const [showAllProfileViolations, setShowAllProfileViolations] = useState(false);
+  const [showAllProfileComplaints, setShowAllProfileComplaints] = useState(false);
+  const [adminReviewPage, setAdminReviewPage] = useState(0);
+  const [adminData, setAdminData] = useState<{
+    searchCount7d: number;
+    searchCountAll: number;
+    pageViewCount7d: number;
+    pageViewCountAll: number;
+    totalReviews: number;
+    uniqueReviewers: number;
+    totalSignups: number;
+    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean }[];
+    popularLandlords: { name: string; views: number }[];
+    recentReviews: { landlord_name: string; address: string; rating: number; created_at: string; text: string }[];
+    activityFeed: { event_type: string; event_data: Record<string, unknown>; created_at: string }[];
+  } | null>(null);
+  const [adminLoading, setAdminLoading] = useState(false);
 
   const auth = useAuth();
+  const isAdmin = auth.user?.email === ADMIN_EMAIL;
 
   const cityData = useChicagoData(
     view === "profile" && selected ? selected.addresses : null
@@ -593,16 +552,121 @@ export default function TenantShield() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Track page views when view changes
+  useEffect(() => {
+    if (view === "home" || view === "login" || view === "signup") return;
+    const data: Record<string, unknown> = { view };
+    if (view === "profile" && selected) data.landlord = selected.slug;
+    trackEvent("page_view", data, auth.user?.id);
+  }, [view, selected, auth.user?.id]);
+
+  // Track login events
+  useEffect(() => {
+    if (auth.user) {
+      trackEvent("login", { method: auth.user.app_metadata?.provider || "email" }, auth.user.id);
+    }
+  }, [auth.user?.id]);
+
+  // Load admin dashboard data
+  useEffect(() => {
+    if (view !== "admin" || !isAdmin || !isSupabaseConfigured()) return;
+    setAdminLoading(true);
+    (async () => {
+      const sb = getSupabase()!;
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const [
+        { count: searchCount7d },
+        { count: searchCountAll },
+        { count: pageViewCount7d },
+        { count: pageViewCountAll },
+        { count: totalReviews },
+        { data: reviewerData },
+        { data: recentSearchesRaw },
+        { data: pageViewsRaw },
+        { data: recentReviewsRaw },
+        { data: activityFeedRaw },
+        { data: loginUsersRaw },
+      ] = await Promise.all([
+        sb.from("analytics_events").select("*", { count: "exact", head: true }).eq("event_type", "search").gte("created_at", sevenDaysAgo),
+        sb.from("analytics_events").select("*", { count: "exact", head: true }).eq("event_type", "search"),
+        sb.from("analytics_events").select("*", { count: "exact", head: true }).eq("event_type", "page_view").gte("created_at", sevenDaysAgo),
+        sb.from("analytics_events").select("*", { count: "exact", head: true }).eq("event_type", "page_view"),
+        sb.from("reviews").select("*", { count: "exact", head: true }),
+        sb.from("reviews").select("user_id"),
+        sb.from("analytics_events").select("event_data, created_at").eq("event_type", "search").order("created_at", { ascending: false }).limit(200),
+        sb.from("analytics_events").select("event_data, created_at").eq("event_type", "page_view").order("created_at", { ascending: false }).limit(200),
+        sb.from("reviews").select("*, landlords(name, addresses(address))").order("created_at", { ascending: false }).limit(500),
+        sb.from("analytics_events").select("event_type, event_data, created_at").order("created_at", { ascending: false }).limit(30),
+        sb.from("analytics_events").select("user_id").eq("event_type", "login"),
+      ]);
+
+      // Aggregate popular landlords from page_view events
+      const landlordViews: Record<string, number> = {};
+      for (const pv of (pageViewsRaw || [])) {
+        const name = (pv.event_data as Record<string, unknown>)?.landlord as string;
+        if (name) landlordViews[name] = (landlordViews[name] || 0) + 1;
+      }
+      const popularLandlords = Object.entries(landlordViews)
+        .map(([name, views]) => ({ name, views }))
+        .sort((a, b) => b.views - a.views)
+        .slice(0, 10);
+
+      // Count unique reviewers
+      const uniqueUserIds = new Set((reviewerData || []).map((r: { user_id: string }) => r.user_id).filter(Boolean));
+
+      // Count unique signups (distinct user_ids from login events)
+      const signupUserIds = new Set((loginUsersRaw || []).map((r: { user_id: string }) => r.user_id).filter(Boolean));
+
+      setAdminData({
+        searchCount7d: searchCount7d ?? 0,
+        searchCountAll: searchCountAll ?? 0,
+        pageViewCount7d: pageViewCount7d ?? 0,
+        pageViewCountAll: pageViewCountAll ?? 0,
+        totalReviews: totalReviews ?? 0,
+        uniqueReviewers: uniqueUserIds.size,
+        totalSignups: signupUserIds.size,
+        recentSearches: (recentSearchesRaw || []).map((r: { event_data: Record<string, unknown>; created_at: string }) => ({
+          query: (r.event_data?.query as string) || "—",
+          created_at: r.created_at,
+          resultCount: r.event_data?.resultCount as number | undefined,
+          hasAddressResult: r.event_data?.hasAddressResult as boolean | undefined,
+        })),
+        popularLandlords,
+        recentReviews: (recentReviewsRaw || []).map((r: Record<string, unknown>) => {
+          const landlordObj = r.landlords as Record<string, unknown> | undefined;
+          const addrs = landlordObj?.addresses as { address: string }[] | undefined;
+          return {
+            landlord_name: (landlordObj?.name as string) || "Unknown",
+            address: addrs?.[0]?.address || "",
+            rating: r.rating as number,
+            created_at: r.created_at as string,
+            text: (r.text as string) || "",
+          };
+        }),
+        activityFeed: (activityFeedRaw || []).map((r: { event_type: string; event_data: Record<string, unknown>; created_at: string }) => ({
+          event_type: r.event_type,
+          event_data: r.event_data || {},
+          created_at: r.created_at,
+        })),
+      });
+      setAdminLoading(false);
+    })();
+  }, [view, isAdmin]);
+
   const doSearch = useCallback(
     async (q?: string) => {
       const t = (q || query).toLowerCase().trim();
       if (!t) return;
 
+      setAddressResult(null);
+      let found: Landlord[] = [];
+      let addressResultData: { address: string; violations: BuildingViolation[]; complaints: ServiceRequest[] } | null = null;
+
       if (isSupabaseConfigured()) {
         setLoading(true);
-        const found = await searchLandlords(t);
+        found = await searchLandlords(t);
         setResults(found);
-        setLoading(false);
       } else {
         const f: Landlord[] = [];
         const seen = new Set<string>();
@@ -616,11 +680,49 @@ export default function TenantShield() {
             seen.add(ll.id);
           }
         }
+        found = f;
         setResults(f);
       }
+
+      // Also query Chicago Open Data Portal directly for the search term as an address
+      try {
+        const parsed = parseStreetAddress(q || query);
+        if (parsed) {
+          const variants = generateAddressVariants(parsed);
+          const [violations, complaints] = await Promise.all([
+            fetchBuildingViolations(variants),
+            fetchServiceRequests(variants),
+          ]);
+          // Only show address result if we got city data AND it's not already covered by a landlord result
+          const alreadyCovered = found.some((ll) =>
+            ll.addresses.some(
+              (a) => parseStreetAddress(a) === parsed
+            )
+          );
+          if ((violations.length > 0 || complaints.length > 0) && !alreadyCovered) {
+            addressResultData = {
+              address: (q || query).split(",")[0].trim(),
+              violations,
+              complaints,
+            };
+            setAddressResult(addressResultData);
+          }
+        }
+      } catch {
+        // Chicago API errors shouldn't block the search
+      }
+
+      // Track search event after results are known
+      trackEvent("search", {
+        query: t,
+        resultCount: found.length,
+        hasAddressResult: !!addressResultData,
+      }, auth.user?.id);
+
+      setLoading(false);
       setView("results");
     },
-    [query, landlords]
+    [query, landlords, auth.user?.id]
   );
 
   function openProfile(ll: Landlord) {
@@ -654,6 +756,7 @@ export default function TenantShield() {
     setQuery("");
     setResults([]);
     setSelected(null);
+    setAddressResult(null);
   }
 
   async function submitReview(e: React.FormEvent) {
@@ -692,6 +795,7 @@ export default function TenantShield() {
     }
     setHasReviewed(true);
     setSubmitted(true);
+    trackEvent("review_submit", { landlord: form.landlordName, rating: form.overall }, auth.user?.id);
   }
 
   const inp: React.CSSProperties = {
@@ -789,6 +893,24 @@ export default function TenantShield() {
           )}
           {auth.user ? (
             <>
+              {isAdmin && (
+                <button
+                  onClick={() => setView("admin")}
+                  style={{
+                    padding: "7px 16px",
+                    background: "#f0e6ff",
+                    border: "1px solid #d4b8ff",
+                    borderRadius: 6,
+                    color: "#6e40c9",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Admin
+                </button>
+              )}
               <button
                 onClick={() => setView("account")}
                 style={{
@@ -880,9 +1002,9 @@ export default function TenantShield() {
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "12px 20px 0" }}>
           <button
             onClick={() => {
-              if (view === "profile") setView("results");
+              if (view === "profile" || view === "address-profile") setView("results");
               else if (view === "review" && selected) setView("profile");
-              else if (view === "login" || view === "signup" || view === "account") goHome();
+              else if (view === "login" || view === "signup" || view === "account" || view === "admin") goHome();
               else goHome();
             }}
             style={{
@@ -1025,33 +1147,36 @@ export default function TenantShield() {
           </div>
           <div
             style={{
-              display: "flex",
-              justifyContent: "center",
-              gap: 48,
-              padding: "32px 20px",
+              padding: "28px 20px 24px",
               borderBottom: "1px solid #e8ecf0",
-              flexWrap: "wrap",
+              textAlign: "center",
             }}
           >
-            {(
-              [
-                ["257", "Tenant Reviews"],
-                ["6", "Landlords Tracked"],
-                ["12", "Neighborhoods"],
-                ["87", "Violations on Record"],
-              ] as const
-            ).map(([n, l]) => (
-              <div key={l} style={{ textAlign: "center" }}>
-                <div
-                  style={{ fontSize: 24, fontWeight: 700, color: "#1f2328" }}
+            <p style={{ fontSize: 15, color: "#424a53", margin: "0 0 16px", lineHeight: 1.6 }}>
+              Search any Chicago address to see real building violations and 311 complaints from city records
+            </p>
+            <div style={{ fontSize: 12, color: "#8b949e", marginBottom: 10 }}>Try an example address:</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              {["1550 N Lake Shore Dr", "4707 S Drexel Blvd", "1401 W Division St", "6217 S Dorchester Ave"].map((addr) => (
+                <button
+                  key={addr}
+                  onClick={() => { setQuery(addr); doSearch(addr); }}
+                  style={{
+                    padding: "6px 14px",
+                    background: "#f6f8fa",
+                    border: "1px solid #e8ecf0",
+                    borderRadius: 20,
+                    color: "#1f6feb",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
                 >
-                  {n}
-                </div>
-                <div style={{ fontSize: 12, color: "#8b949e", marginTop: 2 }}>
-                  {l}
-                </div>
-              </div>
-            ))}
+                  {addr}
+                </button>
+              ))}
+            </div>
           </div>
           <div
             style={{
@@ -1222,10 +1347,10 @@ export default function TenantShield() {
           <p
             style={{ fontSize: 13, color: "#8b949e", marginBottom: 16 }}
           >
-            {results.length} result{results.length !== 1 ? "s" : ""} for &ldquo;
+            {results.length + (addressResult ? 1 : 0)} result{results.length + (addressResult ? 1 : 0) !== 1 ? "s" : ""} for &ldquo;
             {query}&rdquo;
           </p>
-          {results.length === 0 && (
+          {results.length === 0 && !addressResult && (
             <div
               style={{
                 textAlign: "center",
@@ -1242,7 +1367,7 @@ export default function TenantShield() {
                   marginBottom: 16,
                 }}
               >
-                No landlords found matching your search.
+                No results found matching your search.
               </p>
               <button
                 onClick={goReview}
@@ -1394,6 +1519,81 @@ export default function TenantShield() {
               </div>
             );
           })}
+          {addressResult && (
+            <div
+              onClick={() => { setShowAllProfileViolations(false); setShowAllProfileComplaints(false); setView("address-profile"); }}
+              style={{
+                border: "1px solid #e8ecf0",
+                borderRadius: 8,
+                padding: "20px 24px",
+                marginBottom: 10,
+                background: "#fff",
+                cursor: "pointer",
+                transition: "box-shadow 0.15s",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.boxShadow = "none")
+              }
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, margin: "0 0 4px", color: "#1f2328" }}>
+                    {addressResult.address}
+                  </h3>
+                  <div style={{ fontSize: 13, color: "#57606a" }}>
+                    Address lookup via City of Chicago
+                  </div>
+                </div>
+                <div style={{
+                  padding: "6px 12px",
+                  background: "#f6f8fa",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: "#57606a",
+                  fontWeight: 600,
+                }}>
+                  City Data
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 12, paddingTop: 12, borderTop: "1px solid #f0f3f6" }}>
+                {addressResult.violations.length > 0 ? (
+                  <span style={{ fontSize: 12, color: "#cf222e" }}>
+                    ⚠ {addressResult.violations.length} building violation{addressResult.violations.length !== 1 ? "s" : ""}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: "#1a7f37" }}>
+                    ✓ No violations on record
+                  </span>
+                )}
+                {addressResult.complaints.length > 0 && (
+                  <span style={{ fontSize: 12, color: "#bc4c00" }}>
+                    {addressResult.complaints.length} complaint{addressResult.complaints.length !== 1 ? "s" : ""} filed
+                  </span>
+                )}
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <button
+                  onClick={goReview}
+                  style={{
+                    padding: "8px 16px",
+                    background: "#fff",
+                    border: "1px solid #d0d7de",
+                    borderRadius: 6,
+                    color: "#1f2328",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  No reviews yet — be the first
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1776,6 +1976,286 @@ export default function TenantShield() {
             </div>
           );
         })()}
+
+      {/* ─── ADDRESS PROFILE ─── */}
+      {view === "address-profile" && addressResult && (
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 20px" }}>
+          {/* Header */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              marginBottom: 16,
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "24px 28px", borderBottom: "1px solid #e8ecf0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+                <div>
+                  <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px", color: "#1f2328" }}>
+                    {addressResult.address}
+                  </h1>
+                  <p style={{ fontSize: 14, color: "#57606a", margin: 0 }}>
+                    Chicago, IL · Public Records
+                  </p>
+                </div>
+                <div style={{
+                  padding: "8px 14px",
+                  background: "#f6f8fa",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: "#57606a",
+                  fontWeight: 600,
+                  textAlign: "center",
+                }}>
+                  City of Chicago<br />Open Data
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: "20px 28px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                {(() => {
+                  const vLen = addressResult.violations.length;
+                  const cLen = addressResult.complaints.length;
+                  return [
+                    [cLen, "311 Complaints", cLen > 10 ? "#cf222e" : cLen > 0 ? "#bc4c00" : "#1a7f37"],
+                    [vLen, "Building Violations", vLen > 5 ? "#cf222e" : vLen > 0 ? "#bc4c00" : "#1a7f37"],
+                    [0, "Tenant Reviews", "#8b949e"],
+                  ] as const;
+                })().map(([num, label, color]) => (
+                  <div key={label} style={{ padding: 14, background: "#f6f8fa", borderRadius: 6, textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color }}>{num}</div>
+                    <div style={{ fontSize: 11, color: "#8b949e", marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 311 Complaints */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+              marginBottom: 16,
+            }}
+          >
+            <h3 style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#1f2328",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}>
+              311 Complaints ({addressResult.complaints.length})
+            </h3>
+            {addressResult.complaints.length === 0 ? (
+              <p style={{ fontSize: 14, color: "#57606a" }}>No 311 complaints on record for this address.</p>
+            ) : (
+              <>
+                {(showAllProfileComplaints ? addressResult.complaints : addressResult.complaints.slice(0, 10)).map((c, i, arr) => {
+                  const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
+                  return (
+                    <div
+                      key={c.sr_number || i}
+                      style={{
+                        borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                        padding: "16px 0",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{
+                            display: "inline-block",
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: isClosed ? "#1a7f37" : "#bc4c00",
+                            flexShrink: 0,
+                          }} />
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                            {c.sr_type || "Service Request"}
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: isClosed ? "#dafbe1" : "#fff1e5",
+                          color: isClosed ? "#1a7f37" : "#bc4c00",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}>
+                          {isClosed ? "Resolved" : "Open"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16 }}>
+                        {c.created_date ? formatDate(c.created_date) : "Date unknown"}
+                        {c.sr_number && <span> · #{c.sr_number}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {addressResult.complaints.length > 10 && (
+                  <button
+                    onClick={() => setShowAllProfileComplaints((p) => !p)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "10px 0",
+                      background: "#f6f8fa",
+                      border: "1px solid #e8ecf0",
+                      borderRadius: 6,
+                      color: "#1f6feb",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      marginTop: 8,
+                    }}
+                  >
+                    {showAllProfileComplaints ? "Show less" : `Show all ${addressResult.complaints.length}`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Building Violations */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+              marginBottom: 16,
+            }}
+          >
+            <h3 style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#1f2328",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}>
+              Building Violations ({addressResult.violations.length})
+            </h3>
+            {addressResult.violations.length === 0 ? (
+              <p style={{ fontSize: 14, color: "#57606a" }}>No building violations on record for this address.</p>
+            ) : (
+              <>
+                {(showAllProfileViolations ? addressResult.violations : addressResult.violations.slice(0, 10)).map((v, i, arr) => {
+                  const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT";
+                  return (
+                    <div
+                      key={v.id || i}
+                      style={{
+                        borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                        padding: "16px 0",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{
+                            display: "inline-block",
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: isOpen ? "#cf222e" : "#1a7f37",
+                            flexShrink: 0,
+                          }} />
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                            {v.inspection_category || "Building Violation"}
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: isOpen ? "#ffebe9" : "#dafbe1",
+                          color: isOpen ? "#cf222e" : "#1a7f37",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}>
+                          {isOpen ? "Open" : "Resolved"}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
+                        {v.violation_description || "No description available"}
+                      </p>
+                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16 }}>
+                        {v.violation_date ? formatDate(v.violation_date) : "Date unknown"}
+                      </div>
+                    </div>
+                  );
+                })}
+                {addressResult.violations.length > 10 && (
+                  <button
+                    onClick={() => setShowAllProfileViolations((p) => !p)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "10px 0",
+                      background: "#f6f8fa",
+                      border: "1px solid #e8ecf0",
+                      borderRadius: 6,
+                      color: "#1f6feb",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      marginTop: 8,
+                    }}
+                  >
+                    {showAllProfileViolations ? "Show less" : `Show all ${addressResult.violations.length}`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* CTA */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "28px",
+              textAlign: "center",
+            }}
+          >
+            <p style={{ fontSize: 15, fontWeight: 600, color: "#1f2328", margin: "0 0 6px" }}>
+              Lived here? Share your experience.
+            </p>
+            <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 16px" }}>
+              No tenant reviews yet for this address. Be the first to help other renters.
+            </p>
+            <button
+              onClick={goReview}
+              style={{
+                padding: "10px 22px",
+                background: "#1f6feb",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              Write a Review
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─── REVIEW ─── */}
       {view === "review" &&
@@ -2644,6 +3124,212 @@ export default function TenantShield() {
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {/* ─── ADMIN DASHBOARD ─── */}
+      {view === "admin" && isAdmin && (
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px" }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+            Admin Dashboard
+          </h1>
+          <p style={{ fontSize: 14, color: "#8b949e", margin: "0 0 24px" }}>
+            Site analytics and activity overview
+          </p>
+
+          {adminLoading || !adminData ? (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <span style={{ fontSize: 14, color: "#57606a" }}>Loading dashboard...</span>
+            </div>
+          ) : (
+            <>
+              {/* Overview cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
+                {[
+                  { label: "Searches", value7d: adminData.searchCount7d, valueAll: adminData.searchCountAll, color: "#1f6feb" },
+                  { label: "Page Views", value7d: adminData.pageViewCount7d, valueAll: adminData.pageViewCountAll, color: "#1a7f37" },
+                  { label: "Total Reviews", value7d: adminData.totalReviews, valueAll: null, color: "#9a6700" },
+                  { label: "Unique Reviewers", value7d: adminData.uniqueReviewers, valueAll: null, color: "#6e40c9" },
+                  { label: "Total Signups", value7d: adminData.totalSignups, valueAll: null, color: "#cf222e" },
+                ].map((card) => (
+                  <div key={card.label} style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px" }}>
+                    <div style={{ fontSize: 12, color: "#8b949e", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                      {card.label}
+                    </div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: card.color }}>
+                      {card.value7d}
+                    </div>
+                    {card.valueAll !== null && (
+                      <div style={{ fontSize: 12, color: "#8b949e", marginTop: 4 }}>
+                        Last 7 days · {card.valueAll} all time
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Two column panels */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                {/* Search Log */}
+                <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", maxHeight: 480, overflowY: "auto" }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Search Log ({adminData.recentSearches.length})
+                  </h3>
+                  {adminData.recentSearches.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "#8b949e" }}>No searches yet</p>
+                  ) : (
+                    adminData.recentSearches.map((s, i) => {
+                      const hasResults = (s.resultCount !== undefined && s.resultCount > 0) || s.hasAddressResult;
+                      const hasData = s.resultCount !== undefined;
+                      return (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < adminData.recentSearches.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                          {hasData && (
+                            <span style={{ fontSize: 12, flexShrink: 0 }}>
+                              {hasResults ? "\u2705" : "\u274C"}
+                            </span>
+                          )}
+                          <span style={{ fontSize: 13, color: "#1f2328", fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.query}</span>
+                          <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", flexShrink: 0 }}>{formatDate(s.created_at)}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Popular Landlords */}
+                <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px" }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Popular Landlords
+                  </h3>
+                  {adminData.popularLandlords.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "#8b949e" }}>No profile views yet</p>
+                  ) : (
+                    adminData.popularLandlords.map((l, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < adminData.popularLandlords.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                        <span style={{ fontSize: 13, color: "#1f2328", fontWeight: 500 }}>{l.name}</span>
+                        <span style={{ fontSize: 12, color: "#8b949e" }}>{l.views} views</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* All Reviews */}
+              <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", marginBottom: 16 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  All Reviews ({adminData.recentReviews.length})
+                </h3>
+                {adminData.recentReviews.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "#8b949e" }}>No reviews yet</p>
+                ) : (
+                  <>
+                    {adminData.recentReviews.slice(adminReviewPage * 25, (adminReviewPage + 1) * 25).map((r, i) => (
+                      <div key={i} style={{ padding: "12px 0", borderBottom: "1px solid #f0f3f6" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>{r.landlord_name}</span>
+                            <Stars rating={r.rating} size={12} />
+                          </div>
+                          <span style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(r.created_at)}</span>
+                        </div>
+                        {r.address && (
+                          <div style={{ fontSize: 12, color: "#8b949e", marginBottom: 4 }}>{r.address}</div>
+                        )}
+                        <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
+                          {r.text}
+                        </p>
+                      </div>
+                    ))}
+                    {adminData.recentReviews.length > 25 && (
+                      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12 }}>
+                        <button
+                          disabled={adminReviewPage === 0}
+                          onClick={() => setAdminReviewPage((p) => p - 1)}
+                          style={{
+                            padding: "6px 14px",
+                            background: adminReviewPage === 0 ? "#f6f8fa" : "#fff",
+                            border: "1px solid #e8ecf0",
+                            borderRadius: 6,
+                            color: adminReviewPage === 0 ? "#8b949e" : "#1f6feb",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: adminReviewPage === 0 ? "default" : "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          Previous
+                        </button>
+                        <span style={{ fontSize: 12, color: "#57606a", padding: "6px 8px" }}>
+                          Page {adminReviewPage + 1} of {Math.ceil(adminData.recentReviews.length / 25)}
+                        </span>
+                        <button
+                          disabled={(adminReviewPage + 1) * 25 >= adminData.recentReviews.length}
+                          onClick={() => setAdminReviewPage((p) => p + 1)}
+                          style={{
+                            padding: "6px 14px",
+                            background: (adminReviewPage + 1) * 25 >= adminData.recentReviews.length ? "#f6f8fa" : "#fff",
+                            border: "1px solid #e8ecf0",
+                            borderRadius: 6,
+                            color: (adminReviewPage + 1) * 25 >= adminData.recentReviews.length ? "#8b949e" : "#1f6feb",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: (adminReviewPage + 1) * 25 >= adminData.recentReviews.length ? "default" : "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Activity Feed */}
+              <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px" }}>
+                <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Activity Feed
+                </h3>
+                {adminData.activityFeed.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "#8b949e" }}>No activity yet</p>
+                ) : (
+                  adminData.activityFeed.map((ev, i) => {
+                    const typeColors: Record<string, string> = {
+                      search: "#1f6feb",
+                      page_view: "#1a7f37",
+                      review_submit: "#9a6700",
+                      login: "#6e40c9",
+                    };
+                    const color = typeColors[ev.event_type] || "#57606a";
+                    let detail = "";
+                    if (ev.event_type === "search") detail = `"${(ev.event_data as Record<string, unknown>).query || ""}"`;
+                    else if (ev.event_type === "page_view") detail = `${(ev.event_data as Record<string, unknown>).view || ""}${(ev.event_data as Record<string, unknown>).landlord ? ` — ${(ev.event_data as Record<string, unknown>).landlord}` : ""}`;
+                    else if (ev.event_type === "review_submit") detail = (ev.event_data as Record<string, unknown>).landlord as string || "";
+                    else if (ev.event_type === "login") detail = (ev.event_data as Record<string, unknown>).method as string || "";
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: i < adminData.activityFeed.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: color + "18",
+                          color,
+                          whiteSpace: "nowrap",
+                          minWidth: 80,
+                          textAlign: "center",
+                        }}>
+                          {ev.event_type.replace("_", " ")}
+                        </span>
+                        <span style={{ fontSize: 13, color: "#424a53", flex: 1 }}>{detail}</span>
+                        <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap" }}>{formatDate(ev.created_at)}</span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 

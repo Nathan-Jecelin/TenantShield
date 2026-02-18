@@ -39,16 +39,40 @@ const STREET_TYPES: Record<string, string> = {
   WAY: "WAY",
 };
 
+const DIRECTIONS: Record<string, string> = {
+  NORTH: "N", SOUTH: "S", EAST: "E", WEST: "W",
+  NORTHEAST: "NE", NORTHWEST: "NW", SOUTHEAST: "SE", SOUTHWEST: "SW",
+};
+
 export function parseStreetAddress(full: string): string {
-  // Take only the street portion (before first comma), uppercase
-  const street = full.split(",")[0].trim().toUpperCase();
-  // Normalize street types
-  return street.replace(/\b([A-Z]+)$/g, (match) => STREET_TYPES[match] || match);
+  let street = full.split(",")[0].trim().toUpperCase();
+  // Remove periods (e.g. "St." → "ST")
+  street = street.replace(/\./g, "");
+  // Strip apartment/unit/suite suffixes
+  street = street.replace(/\s+(APT|UNIT|STE|SUITE|#)\s*\S*$/i, "");
+  // Normalize directional words
+  street = street.replace(
+    /\b(NORTH|SOUTH|EAST|WEST|NORTHEAST|NORTHWEST|SOUTHEAST|SOUTHWEST)\b/g,
+    (m) => DIRECTIONS[m] || m
+  );
+  // Normalize all street type words (not just last word)
+  for (const [full, abbr] of Object.entries(STREET_TYPES)) {
+    street = street.replace(new RegExp(`\\b${full}\\b`, "g"), abbr);
+  }
+  return street.replace(/\s+/g, " ").trim();
+}
+
+export function generateAddressVariants(parsed: string): string[] {
+  const variants = [parsed];
+  // Try without directional prefix (e.g. "1550 LAKE SHORE DR")
+  const withoutDir = parsed.replace(/^(\d+)\s+[NSEW]\s+/, "$1 ");
+  if (withoutDir !== parsed) variants.push(withoutDir);
+  return variants;
 }
 
 function buildOrClause(column: string, addresses: string[]): string {
   return addresses
-    .map((a) => `${column}='${a.replace(/'/g, "''")}'`)
+    .map((a) => `starts_with(upper(${column}), '${a.replace(/'/g, "''")}')`)
     .join(" OR ");
 }
 
