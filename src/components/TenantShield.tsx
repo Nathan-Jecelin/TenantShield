@@ -1157,7 +1157,7 @@ export default function TenantShield() {
             </p>
             <div style={{ fontSize: 12, color: "#8b949e", marginBottom: 10 }}>Try an example address:</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-              {["1550 N Lake Shore Dr", "4707 S Drexel Blvd", "1401 W Division St", "6217 S Dorchester Ave"].map((addr) => (
+              {["1550 N Lake Shore Dr", "1130 S Michigan Ave", "1401 W Division St", "6217 S Dorchester Ave"].map((addr) => (
                 <button
                   key={addr}
                   onClick={() => { setQuery(addr); doSearch(addr); }}
