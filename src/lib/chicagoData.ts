@@ -6,8 +6,14 @@ export interface BuildingViolation {
   id: string;
   violation_date: string;
   violation_status: string;
+  violation_status_date: string;
   violation_description: string;
+  violation_inspector_comments: string;
+  violation_ordinance: string;
+  violation_code: string;
   inspection_category: string;
+  inspection_status: string;
+  department_bureau: string;
   address: string;
 }
 
@@ -16,6 +22,10 @@ export interface ServiceRequest {
   sr_type: string;
   status: string;
   created_date: string;
+  closed_date: string;
+  owner_department: string;
+  ward: string;
+  zip_code: string;
   street_address: string;
 }
 
@@ -77,7 +87,7 @@ function buildOrClause(column: string, addresses: string[]): string {
 }
 
 const VIOLATION_FIELDS =
-  "id,violation_date,violation_status,violation_description,inspection_category,address";
+  "id,violation_date,violation_status,violation_status_date,violation_description,violation_inspector_comments,violation_ordinance,violation_code,inspection_category,inspection_status,department_bureau,address";
 
 export async function fetchBuildingViolations(
   streetAddresses: string[]
@@ -97,7 +107,7 @@ export async function fetchBuildingViolations(
   return res.json();
 }
 
-const SR_FIELDS = "sr_number,sr_type,status,created_date,street_address";
+const SR_FIELDS = "sr_number,sr_type,status,created_date,closed_date,owner_department,ward,zip_code,street_address";
 
 export async function fetchServiceRequests(
   streetAddresses: string[]

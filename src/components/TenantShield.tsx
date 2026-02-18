@@ -1574,9 +1574,12 @@ export default function TenantShield() {
                   </span>
                 )}
               </div>
+              <div style={{ marginTop: 10, fontSize: 13, color: "#1f6feb", fontWeight: 500 }}>
+                View all records &rarr;
+              </div>
               <div style={{ marginTop: 14 }}>
                 <button
-                  onClick={goReview}
+                  onClick={(e) => { e.stopPropagation(); goReview(); }}
                   style={{
                     padding: "8px 16px",
                     background: "#fff",
@@ -2094,9 +2097,16 @@ export default function TenantShield() {
                           {isClosed ? "Resolved" : "Open"}
                         </span>
                       </div>
-                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16 }}>
-                        {c.created_date ? formatDate(c.created_date) : "Date unknown"}
+                      {c.owner_department && (
+                        <div style={{ fontSize: 12, color: "#424a53", paddingLeft: 16, marginBottom: 4 }}>
+                          Handled by: {c.owner_department}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        <span>Filed {c.created_date ? formatDate(c.created_date) : "date unknown"}</span>
+                        {isClosed && c.closed_date && <span> · Closed {formatDate(c.closed_date)}</span>}
                         {c.sr_number && <span> · #{c.sr_number}</span>}
+                        {c.ward && <span> · Ward {c.ward}</span>}
                       </div>
                     </div>
                   );
@@ -2151,7 +2161,7 @@ export default function TenantShield() {
             ) : (
               <>
                 {(showAllProfileViolations ? addressResult.violations : addressResult.violations.slice(0, 10)).map((v, i, arr) => {
-                  const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT";
+                  const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
                   return (
                     <div
                       key={v.id || i}
@@ -2173,6 +2183,9 @@ export default function TenantShield() {
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
                             {v.inspection_category || "Building Violation"}
                           </span>
+                          {v.department_bureau && (
+                            <span style={{ fontSize: 11, color: "#8b949e" }}>· {v.department_bureau}</span>
+                          )}
                         </div>
                         <span style={{
                           fontSize: 11,
@@ -2190,8 +2203,20 @@ export default function TenantShield() {
                       <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
                         {v.violation_description || "No description available"}
                       </p>
-                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16 }}>
-                        {v.violation_date ? formatDate(v.violation_date) : "Date unknown"}
+                      {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
+                        <p style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16, fontStyle: "italic" }}>
+                          Inspector notes: {v.violation_inspector_comments}
+                        </p>
+                      )}
+                      {v.violation_ordinance && (
+                        <p style={{ fontSize: 11, color: "#8b949e", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16 }}>
+                          {v.violation_ordinance}
+                        </p>
+                      )}
+                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        <span>{v.violation_date ? formatDate(v.violation_date) : "Date unknown"}</span>
+                        {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
+                        {v.violation_code && <span> · Code {v.violation_code}</span>}
                       </div>
                     </div>
                   );

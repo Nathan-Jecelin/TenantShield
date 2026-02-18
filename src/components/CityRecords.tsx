@@ -41,6 +41,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function ViolationCard({ v }: { v: BuildingViolation }) {
+  const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
   return (
     <div
       style={{
@@ -63,8 +64,18 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
       >
         <span style={{ fontSize: 12, color: "#8b949e" }}>
           {formatDate(v.violation_date)}
+          {v.department_bureau && <span> · {v.department_bureau}</span>}
         </span>
-        <StatusBadge status={v.violation_status} />
+        <span style={{
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "2px 8px",
+          borderRadius: 4,
+          background: isOpen ? "#ffebe9" : "#dafbe1",
+          color: isOpen ? "#cf222e" : "#1a7f37",
+        }}>
+          {isOpen ? "Open" : "Resolved"}
+        </span>
       </div>
       <div
         style={{
@@ -76,6 +87,16 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
       >
         {v.violation_description}
       </div>
+      {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
+        <div style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, marginBottom: 6, fontStyle: "italic" }}>
+          Inspector notes: {v.violation_inspector_comments}
+        </div>
+      )}
+      {v.violation_ordinance && (
+        <div style={{ fontSize: 11, color: "#8b949e", lineHeight: 1.5, marginBottom: 6 }}>
+          {v.violation_ordinance}
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -86,6 +107,7 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
         }}
       >
         {v.inspection_category && <span>{v.inspection_category}</span>}
+        {v.violation_code && <span>Code {v.violation_code}</span>}
         <span>{v.address}</span>
       </div>
     </div>
@@ -93,6 +115,7 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
 }
 
 function ComplaintCard({ c }: { c: ServiceRequest }) {
+  const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
   return (
     <div
       style={{
@@ -116,7 +139,16 @@ function ComplaintCard({ c }: { c: ServiceRequest }) {
         <span style={{ fontSize: 12, color: "#8b949e" }}>
           {formatDate(c.created_date)}
         </span>
-        <StatusBadge status={c.status} />
+        <span style={{
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "2px 8px",
+          borderRadius: 4,
+          background: isClosed ? "#dafbe1" : "#fff1e5",
+          color: isClosed ? "#1a7f37" : "#bc4c00",
+        }}>
+          {isClosed ? "Resolved" : "Open"}
+        </span>
       </div>
       <div
         style={{
@@ -128,6 +160,11 @@ function ComplaintCard({ c }: { c: ServiceRequest }) {
       >
         {c.sr_type}
       </div>
+      {c.owner_department && (
+        <div style={{ fontSize: 12, color: "#57606a", marginBottom: 6 }}>
+          Handled by: {c.owner_department}
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -137,8 +174,10 @@ function ComplaintCard({ c }: { c: ServiceRequest }) {
           flexWrap: "wrap",
         }}
       >
-        <span>{c.sr_number}</span>
+        <span>#{c.sr_number}</span>
         <span>{c.street_address}</span>
+        {isClosed && c.closed_date && <span>Closed {formatDate(c.closed_date)}</span>}
+        {c.ward && <span>Ward {c.ward}</span>}
       </div>
     </div>
   );
