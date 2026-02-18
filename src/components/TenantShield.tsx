@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
-import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, BuildingViolation, ServiceRequest } from "@/lib/chicagoData";
+import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, matchNeighborhood, fetchFullNeighborhoodData, BuildingViolation, ServiceRequest, NeighborhoodResult } from "@/lib/chicagoData";
 import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
 import { trackEvent } from "@/lib/analytics";
@@ -459,6 +459,9 @@ export default function TenantShield() {
   } | null>(null);
   const [showAllProfileViolations, setShowAllProfileViolations] = useState(false);
   const [showAllProfileComplaints, setShowAllProfileComplaints] = useState(false);
+  const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
+  const [showAllNhViolations, setShowAllNhViolations] = useState(false);
+  const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
   const [adminReviewPage, setAdminReviewPage] = useState(0);
   const [adminData, setAdminData] = useState<{
     searchCount7d: number;
@@ -660,8 +663,25 @@ export default function TenantShield() {
       if (!t) return;
 
       setAddressResult(null);
+      setNeighborhoodResult(null);
       let found: Landlord[] = [];
       let addressResultData: { address: string; violations: BuildingViolation[]; complaints: ServiceRequest[] } | null = null;
+      let neighborhoodMatch = false;
+
+      // Check if the search term matches a known neighborhood
+      const nhMatch = matchNeighborhood(t);
+      if (nhMatch) {
+        setLoading(true);
+        try {
+          const nhData = await fetchFullNeighborhoodData(nhMatch.id, nhMatch.name);
+          setNeighborhoodResult(nhData);
+          setShowAllNhViolations(false);
+          setShowAllNhComplaints(false);
+          neighborhoodMatch = true;
+        } catch {
+          // Neighborhood fetch failed, fall through to normal search
+        }
+      }
 
       if (isSupabaseConfigured()) {
         setLoading(true);
@@ -685,31 +705,33 @@ export default function TenantShield() {
       }
 
       // Also query Chicago Open Data Portal directly for the search term as an address
-      try {
-        const parsed = parseStreetAddress(q || query);
-        if (parsed) {
-          const variants = generateAddressVariants(parsed);
-          const [violations, complaints] = await Promise.all([
-            fetchBuildingViolations(variants),
-            fetchServiceRequests(variants),
-          ]);
-          // Only show address result if we got city data AND it's not already covered by a landlord result
-          const alreadyCovered = found.some((ll) =>
-            ll.addresses.some(
-              (a) => parseStreetAddress(a) === parsed
-            )
-          );
-          if ((violations.length > 0 || complaints.length > 0) && !alreadyCovered) {
-            addressResultData = {
-              address: (q || query).split(",")[0].trim(),
-              violations,
-              complaints,
-            };
-            setAddressResult(addressResultData);
+      if (!neighborhoodMatch) {
+        try {
+          const parsed = parseStreetAddress(q || query);
+          if (parsed) {
+            const variants = generateAddressVariants(parsed);
+            const [violations, complaints] = await Promise.all([
+              fetchBuildingViolations(variants),
+              fetchServiceRequests(variants),
+            ]);
+            // Only show address result if we got city data AND it's not already covered by a landlord result
+            const alreadyCovered = found.some((ll) =>
+              ll.addresses.some(
+                (a) => parseStreetAddress(a) === parsed
+              )
+            );
+            if ((violations.length > 0 || complaints.length > 0) && !alreadyCovered) {
+              addressResultData = {
+                address: (q || query).split(",")[0].trim(),
+                violations,
+                complaints,
+              };
+              setAddressResult(addressResultData);
+            }
           }
+        } catch {
+          // Chicago API errors shouldn't block the search
         }
-      } catch {
-        // Chicago API errors shouldn't block the search
       }
 
       // Track search event after results are known
@@ -717,6 +739,7 @@ export default function TenantShield() {
         query: t,
         resultCount: found.length,
         hasAddressResult: !!addressResultData,
+        isNeighborhood: neighborhoodMatch,
       }, auth.user?.id);
 
       setLoading(false);
@@ -757,6 +780,7 @@ export default function TenantShield() {
     setResults([]);
     setSelected(null);
     setAddressResult(null);
+    setNeighborhoodResult(null);
   }
 
   async function submitReview(e: React.FormEvent) {
@@ -1349,8 +1373,11 @@ export default function TenantShield() {
           >
             {results.length + (addressResult ? 1 : 0)} result{results.length + (addressResult ? 1 : 0) !== 1 ? "s" : ""} for &ldquo;
             {query}&rdquo;
+            {neighborhoodResult && (
+              <span> · Showing {neighborhoodResult.neighborhoodName} neighborhood data</span>
+            )}
           </p>
-          {results.length === 0 && !addressResult && (
+          {results.length === 0 && !addressResult && !neighborhoodResult && (
             <div
               style={{
                 textAlign: "center",
@@ -1519,6 +1546,170 @@ export default function TenantShield() {
               </div>
             );
           })}
+          {/* Neighborhood Results */}
+          {neighborhoodResult && (
+            <div style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              marginBottom: 16,
+              overflow: "hidden",
+            }}>
+              <div style={{ padding: "20px 24px", borderBottom: "1px solid #e8ecf0" }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+                  {neighborhoodResult.neighborhoodName} — Neighborhood Overview
+                </h3>
+                <p style={{ fontSize: 13, color: "#57606a", margin: 0 }}>
+                  Community Area {neighborhoodResult.communityArea} · City of Chicago Open Data
+                </p>
+                <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+                  <span style={{ fontSize: 13, color: "#bc4c00", fontWeight: 600 }}>
+                    {neighborhoodResult.totalComplaints} recent 311 complaints
+                  </span>
+                  <span style={{ fontSize: 13, color: "#cf222e", fontWeight: 600 }}>
+                    {neighborhoodResult.totalViolations} building violations
+                  </span>
+                </div>
+              </div>
+
+              {/* Top addresses in the neighborhood */}
+              {neighborhoodResult.topAddresses.length > 0 && (
+                <div style={{ padding: "16px 24px", borderBottom: "1px solid #e8ecf0" }}>
+                  <h4 style={{ fontSize: 12, fontWeight: 600, color: "#8b949e", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Top Addresses by Activity
+                  </h4>
+                  {neighborhoodResult.topAddresses.map((a, i) => (
+                    <div
+                      key={a.address}
+                      onClick={() => {
+                        setQuery(a.address);
+                        doSearch(a.address);
+                      }}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "8px 0",
+                        borderBottom: i < neighborhoodResult.topAddresses.length - 1 ? "1px solid #f0f3f6" : "none",
+                        cursor: "pointer",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f8fa")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span style={{ fontSize: 13, color: "#1f6feb", fontWeight: 500 }}>{a.address}</span>
+                      <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#8b949e" }}>
+                        {a.complaintCount > 0 && <span>{a.complaintCount} complaints</span>}
+                        {a.violationCount > 0 && <span>{a.violationCount} violations</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Recent complaints in the neighborhood */}
+              <div style={{ padding: "16px 24px", borderBottom: "1px solid #e8ecf0" }}>
+                <h4 style={{ fontSize: 12, fontWeight: 600, color: "#8b949e", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Recent 311 Complaints ({neighborhoodResult.recentComplaints.length})
+                </h4>
+                {(showAllNhComplaints ? neighborhoodResult.recentComplaints : neighborhoodResult.recentComplaints.slice(0, 8)).map((c, i, arr) => {
+                  const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
+                  return (
+                    <div key={c.sr_number || i} style={{ padding: "8px 0", borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: "#1f2328" }}>{c.sr_type}</span>
+                          <div style={{ fontSize: 11, color: "#8b949e", marginTop: 2 }}>
+                            {c.street_address} · {c.created_date ? formatDate(c.created_date) : ""}
+                            {c.owner_department && <span> · {c.owner_department}</span>}
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          background: isClosed ? "#dafbe1" : "#fff1e5",
+                          color: isClosed ? "#1a7f37" : "#bc4c00",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}>
+                          {isClosed ? "Resolved" : "Open"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {neighborhoodResult.recentComplaints.length > 8 && (
+                  <button
+                    onClick={() => setShowAllNhComplaints((p) => !p)}
+                    style={{
+                      display: "block", width: "100%", padding: "8px 0", background: "#f6f8fa",
+                      border: "1px solid #e8ecf0", borderRadius: 6, color: "#1f6feb",
+                      fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginTop: 8,
+                    }}
+                  >
+                    {showAllNhComplaints ? "Show less" : `Show all ${neighborhoodResult.recentComplaints.length}`}
+                  </button>
+                )}
+              </div>
+
+              {/* Recent violations in the neighborhood */}
+              <div style={{ padding: "16px 24px" }}>
+                <h4 style={{ fontSize: 12, fontWeight: 600, color: "#8b949e", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Recent Building Violations ({neighborhoodResult.recentViolations.length})
+                </h4>
+                {neighborhoodResult.recentViolations.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "#8b949e" }}>No violations found for top addresses in this area.</p>
+                ) : (
+                  <>
+                    {(showAllNhViolations ? neighborhoodResult.recentViolations : neighborhoodResult.recentViolations.slice(0, 8)).map((v, i, arr) => {
+                      const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
+                      return (
+                        <div key={v.id || i} style={{ padding: "8px 0", borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "#1f2328" }}>
+                                {v.violation_description || v.inspection_category || "Violation"}
+                              </span>
+                              <div style={{ fontSize: 11, color: "#8b949e", marginTop: 2 }}>
+                                {v.address} · {v.violation_date ? formatDate(v.violation_date) : ""}
+                                {v.department_bureau && <span> · {v.department_bureau}</span>}
+                              </div>
+                            </div>
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: isOpen ? "#ffebe9" : "#dafbe1",
+                              color: isOpen ? "#cf222e" : "#1a7f37",
+                              whiteSpace: "nowrap",
+                              flexShrink: 0,
+                            }}>
+                              {isOpen ? "Open" : "Resolved"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {neighborhoodResult.recentViolations.length > 8 && (
+                      <button
+                        onClick={() => setShowAllNhViolations((p) => !p)}
+                        style={{
+                          display: "block", width: "100%", padding: "8px 0", background: "#f6f8fa",
+                          border: "1px solid #e8ecf0", borderRadius: 6, color: "#1f6feb",
+                          fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginTop: 8,
+                        }}
+                      >
+                        {showAllNhViolations ? "Show less" : `Show all ${neighborhoodResult.recentViolations.length}`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {addressResult && (
             <div
               onClick={() => { setShowAllProfileViolations(false); setShowAllProfileComplaints(false); setView("address-profile"); }}
