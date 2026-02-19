@@ -1191,7 +1191,7 @@ export default function TenantShield() {
                 flexWrap: "wrap",
               }}
             >
-              {["Lakeview", "Lincoln Park", "Peak Properties", "Gold Coast"].map(
+              {["Lakeview", "Lincoln Park", "Hyde Park", "Gold Coast"].map(
                 (t) => (
                   <button
                     key={t}
