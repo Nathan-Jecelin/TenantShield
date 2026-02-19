@@ -29,6 +29,19 @@ export interface ServiceRequest {
   street_address: string;
 }
 
+export interface BuildingPermit {
+  id: string;
+  permit_: string;
+  permit_status: string;
+  permit_type: string;
+  issue_date: string;
+  work_description: string;
+  total_fee: string;
+  street_number: string;
+  street_direction: string;
+  street_name: string;
+}
+
 const STREET_TYPES: Record<string, string> = {
   AVENUE: "AVE",
   BOULEVARD: "BLVD",
@@ -125,6 +138,51 @@ export async function fetchServiceRequests(
   );
   if (!res.ok) throw new Error(`311 API error: ${res.status}`);
   return res.json();
+}
+
+// ─── BUILDING PERMITS ───
+
+const PERMIT_FIELDS = "id,permit_,permit_status,permit_type,issue_date,work_description,total_fee,street_number,street_direction,street_name";
+
+export async function fetchBuildingPermits(
+  streetAddresses: string[]
+): Promise<BuildingPermit[]> {
+  if (streetAddresses.length === 0) return [];
+  // Building permits use separate street_number, street_direction, street_name fields
+  // Build a WHERE clause that matches on those fields
+  const conditions = streetAddresses.map((addr) => {
+    // Parse "1550 N LAKE SHORE DR" → number=1550, dir=N, name=LAKE SHORE DR
+    const parts = addr.match(/^(\d+)\s+([NSEW](?:[EW])?)\s+(.+)$/);
+    if (parts) {
+      const [, num, dir, name] = parts;
+      return `(street_number=${num} AND upper(street_direction)='${dir}' AND starts_with(upper(street_name), '${name.replace(/'/g, "''")}'))`;
+    }
+    // Fallback: try without direction
+    const noDirParts = addr.match(/^(\d+)\s+(.+)$/);
+    if (noDirParts) {
+      const [, num, name] = noDirParts;
+      return `(street_number=${num} AND starts_with(upper(street_name), '${name.replace(/'/g, "''")}'))`;
+    }
+    return null;
+  }).filter(Boolean);
+
+  if (conditions.length === 0) return [];
+  const where = conditions.join(" OR ");
+  const params = new URLSearchParams({
+    $where: where,
+    $order: "issue_date DESC",
+    $limit: "100",
+    $select: PERMIT_FIELDS,
+  });
+  try {
+    const res = await fetch(
+      `https://data.cityofchicago.org/resource/ydr8-5enu.json?${params}`
+    );
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
 }
 
 // ─── NEIGHBORHOOD / COMMUNITY AREA SUPPORT ───

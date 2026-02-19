@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
-import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, matchNeighborhood, fetchFullNeighborhoodData, BuildingViolation, ServiceRequest, NeighborhoodResult } from "@/lib/chicagoData";
+import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
 import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
 import { trackEvent } from "@/lib/analytics";
+import { addressToSlug } from "@/lib/slugs";
 
 // ─── TYPES ───
 
@@ -427,10 +428,115 @@ function ReviewCard({ review }: { review: Review }) {
 
 const ADMIN_EMAIL = "njecelin17@gmail.com";
 
+// ─── 311 COMPLAINT CLASSIFICATION ───
+
+const STREET_LEVEL_TYPES = new Set([
+  "Pothole in Street",
+  "Street Light Out Complaint",
+  "Street Lights - All/Out",
+  "Street Light 1/Out",
+  "Graffiti Removal Request",
+  "Graffiti Removal",
+  "Abandoned Vehicle Complaint",
+  "Street Cleaning Request",
+  "Traffic Signal Out Complaint",
+  "Weed Removal Request",
+  "Tree Trim Request",
+  "Tree Removal Request",
+  "Tree Debris Clean-Up Request",
+  "Alley Light Out Complaint",
+  "Alley Grading Request",
+  "Alley Pothole Complaint",
+  "Pavement Cave-In Inspection Request",
+  "Sidewalk Inspection Request",
+  "Sign Repair Request - Loss/Damage",
+  "Traffic Control Signal Timing Complaint",
+  "Viaduct Light Out Complaint",
+  "Water On Street Complaint",
+  "Street Cut Complaints",
+  "Sewer Cave-In Inspection Request",
+  "Sewer Cleaning Inspection Request",
+  "DuPage Water Commission",
+  "Park Maintenance Request",
+]);
+
+function isBuildingRelated(srType: string): boolean {
+  if (!srType) return false;
+  const normalized = srType.trim();
+  if (STREET_LEVEL_TYPES.has(normalized)) return false;
+  const streetKeywords = ["pothole", "street light", "graffiti", "abandoned vehicle", "street clean", "traffic signal", "weed removal", "tree trim", "tree removal", "tree debris", "alley light", "alley grading", "alley pothole", "pavement cave", "sidewalk", "sign repair", "viaduct", "sewer", "park maintenance"];
+  const lower = normalized.toLowerCase();
+  return !streetKeywords.some((kw) => lower.includes(kw));
+}
+
+// ─── SHARE BUTTONS COMPONENT ───
+
+function ShareButtons({ address, slug }: { address: string; slug: string }) {
+  const [copied, setCopied] = useState(false);
+  const url = `https://mytenantshield.com/address/${slug}`;
+  const text = `Check out building violations and tenant reviews for ${address} on TenantShield`;
+
+  const shareTwitter = () => {
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, "_blank", "width=600,height=400");
+  };
+  const shareFacebook = () => {
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, "_blank", "width=600,height=400");
+  };
+  const shareReddit = () => {
+    window.open(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`, "_blank", "width=600,height=600");
+  };
+  const copyLink = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const btnStyle: React.CSSProperties = {
+    padding: "6px 12px",
+    background: "#f6f8fa",
+    border: "1px solid #e8ecf0",
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <button onClick={shareTwitter} style={{ ...btnStyle, color: "#1da1f2" }} title="Share on X / Twitter">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        Post
+      </button>
+      <button onClick={shareFacebook} style={{ ...btnStyle, color: "#1877f2" }} title="Share on Facebook">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+        Share
+      </button>
+      <button onClick={shareReddit} style={{ ...btnStyle, color: "#ff4500" }} title="Share on Reddit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
+        Share
+      </button>
+      <button onClick={copyLink} style={{ ...btnStyle, color: copied ? "#1a7f37" : "#57606a" }} title="Copy link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        {copied ? "Copied!" : "Copy Link"}
+      </button>
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ───
 
-export default function TenantShield() {
-  const [view, setView] = useState("home");
+interface TenantShieldProps {
+  initialView?: string;
+  initialAddress?: string;
+}
+
+export default function TenantShield({ initialView, initialAddress }: TenantShieldProps = {}) {
+  const [view, setView] = useState(initialView || "home");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Landlord[]>([]);
   const [selected, setSelected] = useState<Landlord | null>(null);
@@ -462,14 +568,18 @@ export default function TenantShield() {
     address: string;
     violations: BuildingViolation[];
     complaints: ServiceRequest[];
+    permits?: BuildingPermit[];
   } | null>(null);
   const [showAllProfileViolations, setShowAllProfileViolations] = useState(false);
   const [showAllProfileComplaints, setShowAllProfileComplaints] = useState(false);
+  const [showAllProfilePermits, setShowAllProfilePermits] = useState(false);
+  const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
   const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
   const [adminReviewPage, setAdminReviewPage] = useState(0);
+  const initialAddressLoaded = useRef(false);
   const [adminData, setAdminData] = useState<{
     searchCount7d: number;
     searchCountAll: number;
@@ -484,6 +594,9 @@ export default function TenantShield() {
     activityFeed: { event_type: string; event_data: Record<string, unknown>; created_at: string }[];
   } | null>(null);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [blogPosts, setBlogPosts] = useState<{ id: string; slug: string; title: string; excerpt: string; content: string; published: boolean; created_at: string }[]>([]);
+  const [blogEditing, setBlogEditing] = useState<string | null>(null); // post id or "new"
+  const [blogForm, setBlogForm] = useState({ slug: "", title: "", excerpt: "", content: "", published: false });
 
   const auth = useAuth();
   const isAdmin = auth.user?.email === ADMIN_EMAIL;
@@ -564,6 +677,56 @@ export default function TenantShield() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  // Load initial address data when rendered from /address/[slug] route
+  useEffect(() => {
+    if (!initialAddress || !initialView || initialView !== "address-profile") return;
+    if (initialAddressLoaded.current) return;
+    initialAddressLoaded.current = true;
+    setLoading(true);
+    const parsed = parseStreetAddress(initialAddress);
+    const variants = generateAddressVariants(parsed);
+    Promise.all([
+      fetchBuildingViolations(variants),
+      fetchServiceRequests(variants),
+      fetchBuildingPermits(variants),
+    ])
+      .then(([violations, complaints, permits]) => {
+        setAddressResult({ address: initialAddress, violations, complaints, permits });
+      })
+      .catch(() => {
+        setAddressResult({ address: initialAddress, violations: [], complaints: [], permits: [] });
+      })
+      .finally(() => setLoading(false));
+  }, [initialAddress, initialView]);
+
+  // Update browser URL when navigating to address-profile within the SPA
+  useEffect(() => {
+    if (view === "address-profile" && addressResult && !initialView) {
+      const slug = addressToSlug(addressResult.address);
+      const newUrl = `/address/${slug}`;
+      if (window.location.pathname !== newUrl) {
+        window.history.pushState({ view: "address-profile", address: addressResult.address }, "", newUrl);
+      }
+    } else if (view === "home" && !initialView && window.location.pathname !== "/") {
+      window.history.pushState({ view: "home" }, "", "/");
+    }
+  }, [view, addressResult, initialView]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.view === "address-profile" && e.state?.address) {
+        // Navigate back to address profile from browser back
+        return; // Let the natural page navigation handle it
+      }
+      if (window.location.pathname === "/") {
+        goHome();
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track page views when view changes
   useEffect(() => {
@@ -667,8 +830,55 @@ export default function TenantShield() {
         })),
       });
       setAdminLoading(false);
+
+      // Load blog posts for admin
+      const { data: posts } = await sb
+        .from("blog_posts")
+        .select("id, slug, title, excerpt, content, published, created_at")
+        .order("created_at", { ascending: false });
+      if (posts) setBlogPosts(posts);
     })();
   }, [view, isAdmin]);
+
+  async function saveBlogPost() {
+    const sb = getSupabase();
+    if (!sb || !blogForm.title || !blogForm.slug) return;
+    if (blogEditing === "new") {
+      const { error } = await sb.from("blog_posts").insert({
+        slug: blogForm.slug,
+        title: blogForm.title,
+        excerpt: blogForm.excerpt,
+        content: blogForm.content,
+        published: blogForm.published,
+      });
+      if (error) { alert("Error creating post: " + error.message); return; }
+    } else if (blogEditing) {
+      const { error } = await sb.from("blog_posts").update({
+        slug: blogForm.slug,
+        title: blogForm.title,
+        excerpt: blogForm.excerpt,
+        content: blogForm.content,
+        published: blogForm.published,
+        updated_at: new Date().toISOString(),
+      }).eq("id", blogEditing);
+      if (error) { alert("Error updating post: " + error.message); return; }
+    }
+    // Refresh blog posts
+    const { data: posts } = await sb
+      .from("blog_posts")
+      .select("id, slug, title, excerpt, content, published, created_at")
+      .order("created_at", { ascending: false });
+    if (posts) setBlogPosts(posts);
+    setBlogEditing(null);
+  }
+
+  async function deleteBlogPost(id: string) {
+    const sb = getSupabase();
+    if (!sb) return;
+    if (!confirm("Delete this blog post?")) return;
+    await sb.from("blog_posts").delete().eq("id", id);
+    setBlogPosts((p) => p.filter((post) => post.id !== id));
+  }
 
   const doSearch = useCallback(
     async (q?: string) => {
@@ -678,7 +888,7 @@ export default function TenantShield() {
       setAddressResult(null);
       setNeighborhoodResult(null);
       let found: Landlord[] = [];
-      let addressResultData: { address: string; violations: BuildingViolation[]; complaints: ServiceRequest[] } | null = null;
+      let addressResultData: { address: string; violations: BuildingViolation[]; complaints: ServiceRequest[]; permits?: BuildingPermit[] } | null = null;
       let neighborhoodMatch = false;
 
       // Check if the search term matches a known neighborhood
@@ -723,9 +933,10 @@ export default function TenantShield() {
           const parsed = parseStreetAddress(q || query);
           if (parsed) {
             const variants = generateAddressVariants(parsed);
-            const [violations, complaints] = await Promise.all([
+            const [violations, complaints, permits] = await Promise.all([
               fetchBuildingViolations(variants),
               fetchServiceRequests(variants),
+              fetchBuildingPermits(variants),
             ]);
             // Only show address result if we got city data AND it's not already covered by a landlord result
             const alreadyCovered = found.some((ll) =>
@@ -733,11 +944,12 @@ export default function TenantShield() {
                 (a) => parseStreetAddress(a) === parsed
               )
             );
-            if ((violations.length > 0 || complaints.length > 0) && !alreadyCovered) {
+            if ((violations.length > 0 || complaints.length > 0 || permits.length > 0) && !alreadyCovered) {
               addressResultData = {
                 address: (q || query).split(",")[0].trim(),
                 violations,
                 complaints,
+                permits,
               };
               setAddressResult(addressResultData);
             }
@@ -1762,7 +1974,7 @@ export default function TenantShield() {
 
           {addressResult && (
             <div
-              onClick={() => { setShowAllProfileViolations(false); setShowAllProfileComplaints(false); setView("address-profile"); }}
+              onClick={() => { setShowAllProfileViolations(false); setShowAllProfileComplaints(false); setShowAllProfilePermits(false); setComplaintFilter("all"); setView("address-profile"); }}
               style={{
                 border: "1px solid #e8ecf0",
                 borderRadius: 8,
@@ -2222,7 +2434,26 @@ export default function TenantShield() {
         })()}
 
       {/* ─── ADDRESS PROFILE ─── */}
-      {view === "address-profile" && addressResult && (
+      {view === "address-profile" && addressResult && (() => {
+        const addrSlug = addressToSlug(addressResult.address);
+        const buildingComplaints = addressResult.complaints.filter((c) => isBuildingRelated(c.sr_type));
+        const streetComplaints = addressResult.complaints.filter((c) => !isBuildingRelated(c.sr_type));
+        const filteredComplaints = complaintFilter === "building" ? buildingComplaints
+          : complaintFilter === "street" ? streetComplaints
+          : addressResult.complaints;
+        const permits = addressResult.permits || [];
+        const filterBtnStyle = (active: boolean): React.CSSProperties => ({
+          padding: "5px 12px",
+          background: active ? "#1f6feb" : "#f6f8fa",
+          border: active ? "1px solid #1f6feb" : "1px solid #e8ecf0",
+          borderRadius: 20,
+          color: active ? "#fff" : "#57606a",
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: "pointer",
+          fontFamily: "inherit",
+        });
+        return (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 20px" }}>
           {/* Header */}
           <div
@@ -2256,15 +2487,21 @@ export default function TenantShield() {
                   City of Chicago<br />Open Data
                 </div>
               </div>
+              {/* Share Buttons */}
+              <div style={{ marginTop: 16 }}>
+                <ShareButtons address={addressResult.address} slug={addrSlug} />
+              </div>
             </div>
             <div style={{ padding: "20px 28px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 12 }}>
                 {(() => {
                   const vLen = addressResult.violations.length;
                   const cLen = addressResult.complaints.length;
+                  const pLen = permits.length;
                   return [
                     [cLen, "311 Complaints", cLen > 10 ? "#cf222e" : cLen > 0 ? "#bc4c00" : "#1a7f37"],
                     [vLen, "Building Violations", vLen > 5 ? "#cf222e" : vLen > 0 ? "#bc4c00" : "#1a7f37"],
+                    [pLen, "Building Permits", pLen > 0 ? "#1f6feb" : "#8b949e"],
                     [0, "Tenant Reviews", "#8b949e"],
                   ] as const;
                 })().map(([num, label, color]) => (
@@ -2277,7 +2514,7 @@ export default function TenantShield() {
             </div>
           </div>
 
-          {/* 311 Complaints */}
+          {/* 311 Complaints with Filtering */}
           <div
             style={{
               border: "1px solid #e8ecf0",
@@ -2287,22 +2524,49 @@ export default function TenantShield() {
               marginBottom: 16,
             }}
           >
-            <h3 style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#1f2328",
-              margin: "0 0 16px",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-            }}>
-              311 Complaints ({addressResult.complaints.length})
-            </h3>
-            {addressResult.complaints.length === 0 ? (
-              <p style={{ fontSize: 14, color: "#57606a" }}>No 311 complaints on record for this address.</p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+              <h3 style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#1f2328",
+                margin: 0,
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}>
+                311 Complaints ({filteredComplaints.length})
+              </h3>
+              {addressResult.complaints.length > 0 && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setComplaintFilter("all"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "all")}>
+                    All ({addressResult.complaints.length})
+                  </button>
+                  <button onClick={() => { setComplaintFilter("building"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "building")}>
+                    Building ({buildingComplaints.length})
+                  </button>
+                  <button onClick={() => { setComplaintFilter("street"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "street")}>
+                    Street ({streetComplaints.length})
+                  </button>
+                </div>
+              )}
+            </div>
+            {complaintFilter !== "all" && (
+              <div style={{ fontSize: 12, color: "#57606a", marginBottom: 12, padding: "8px 12px", background: "#f6f8fa", borderRadius: 6 }}>
+                {complaintFilter === "building"
+                  ? "Showing building-related complaints (noise, no heat, water issues, building code, etc.)"
+                  : "Showing street-level complaints (potholes, graffiti, street lights, abandoned vehicles, etc.)"}
+              </div>
+            )}
+            {filteredComplaints.length === 0 ? (
+              <p style={{ fontSize: 14, color: "#57606a" }}>
+                {addressResult.complaints.length === 0
+                  ? "No 311 complaints on record for this address."
+                  : `No ${complaintFilter === "building" ? "building-related" : "street-level"} complaints found.`}
+              </p>
             ) : (
               <>
-                {(showAllProfileComplaints ? addressResult.complaints : addressResult.complaints.slice(0, 10)).map((c, i, arr) => {
+                {(showAllProfileComplaints ? filteredComplaints : filteredComplaints.slice(0, 10)).map((c, i, arr) => {
                   const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
+                  const isBldg = isBuildingRelated(c.sr_type);
                   return (
                     <div
                       key={c.sr_number || i}
@@ -2312,7 +2576,7 @@ export default function TenantShield() {
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{
                             display: "inline-block",
                             width: 8,
@@ -2324,6 +2588,18 @@ export default function TenantShield() {
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
                             {c.sr_type || "Service Request"}
                           </span>
+                          {complaintFilter === "all" && (
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: "1px 6px",
+                              borderRadius: 3,
+                              background: isBldg ? "#ddf4ff" : "#fff8c5",
+                              color: isBldg ? "#0969da" : "#9a6700",
+                            }}>
+                              {isBldg ? "Building" : "Street"}
+                            </span>
+                          )}
                         </div>
                         <span style={{
                           fontSize: 11,
@@ -2352,7 +2628,7 @@ export default function TenantShield() {
                     </div>
                   );
                 })}
-                {addressResult.complaints.length > 10 && (
+                {filteredComplaints.length > 10 && (
                   <button
                     onClick={() => setShowAllProfileComplaints((p) => !p)}
                     style={{
@@ -2370,7 +2646,7 @@ export default function TenantShield() {
                       marginTop: 8,
                     }}
                   >
-                    {showAllProfileComplaints ? "Show less" : `Show all ${addressResult.complaints.length}`}
+                    {showAllProfileComplaints ? "Show less" : `Show all ${filteredComplaints.length}`}
                   </button>
                 )}
               </>
@@ -2487,6 +2763,104 @@ export default function TenantShield() {
             )}
           </div>
 
+          {/* Building Permits */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+              marginBottom: 16,
+            }}
+          >
+            <h3 style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#1f2328",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}>
+              Building Permits ({permits.length})
+            </h3>
+            {permits.length === 0 ? (
+              <p style={{ fontSize: 14, color: "#57606a" }}>No building permits on record for this address.</p>
+            ) : (
+              <>
+                {(showAllProfilePermits ? permits : permits.slice(0, 10)).map((p, i, arr) => (
+                  <div
+                    key={p.id || i}
+                    style={{
+                      borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                      padding: "16px 0",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{
+                          display: "inline-block",
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "#1f6feb",
+                          flexShrink: 0,
+                        }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                          {p.permit_type || "Permit"}
+                        </span>
+                      </div>
+                      {p.permit_status && (
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: "#ddf4ff",
+                          color: "#0969da",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}>
+                          {p.permit_status}
+                        </span>
+                      )}
+                    </div>
+                    {p.work_description && (
+                      <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
+                        {p.work_description}
+                      </p>
+                    )}
+                    <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {p.issue_date && <span>Issued {formatDate(p.issue_date)}</span>}
+                      {p.permit_ && <span> · Permit #{p.permit_}</span>}
+                      {p.total_fee && Number(p.total_fee) > 0 && <span> · Fee ${Number(p.total_fee).toLocaleString()}</span>}
+                    </div>
+                  </div>
+                ))}
+                {permits.length > 10 && (
+                  <button
+                    onClick={() => setShowAllProfilePermits((p) => !p)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "10px 0",
+                      background: "#f6f8fa",
+                      border: "1px solid #e8ecf0",
+                      borderRadius: 6,
+                      color: "#1f6feb",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      marginTop: 8,
+                    }}
+                  >
+                    {showAllProfilePermits ? "Show less" : `Show all ${permits.length}`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
           {/* Review CTA */}
           <div
             style={{
@@ -2525,7 +2899,8 @@ export default function TenantShield() {
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ─── REVIEW ─── */}
       {view === "review" &&
@@ -3663,6 +4038,153 @@ export default function TenantShield() {
                   })
                 )}
               </div>
+
+              {/* Blog Management */}
+              <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", marginTop: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Blog Posts ({blogPosts.length})
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setBlogEditing("new");
+                      setBlogForm({ slug: "", title: "", excerpt: "", content: "", published: false });
+                    }}
+                    style={{
+                      padding: "6px 14px",
+                      background: "#1f6feb",
+                      border: "none",
+                      borderRadius: 6,
+                      color: "#fff",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    New Post
+                  </button>
+                </div>
+
+                {blogEditing && (
+                  <div style={{ padding: 16, border: "1px solid #d4e4fb", borderRadius: 8, background: "#f0f6ff", marginBottom: 16 }}>
+                    <h4 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+                      {blogEditing === "new" ? "New Blog Post" : "Edit Post"}
+                    </h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <input
+                        type="text"
+                        placeholder="Title"
+                        value={blogForm.title}
+                        onChange={(e) => {
+                          const title = e.target.value;
+                          setBlogForm((f) => ({
+                            ...f,
+                            title,
+                            ...(blogEditing === "new" ? { slug: title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") } : {}),
+                          }));
+                        }}
+                        style={{ padding: "8px 12px", border: "1px solid #d0d7de", borderRadius: 6, fontSize: 14, fontFamily: "inherit" }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="URL slug (e.g. how-to-check-violations)"
+                        value={blogForm.slug}
+                        onChange={(e) => setBlogForm((f) => ({ ...f, slug: e.target.value }))}
+                        style={{ padding: "8px 12px", border: "1px solid #d0d7de", borderRadius: 6, fontSize: 13, fontFamily: "inherit", color: "#57606a" }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Excerpt (shown in blog listing)"
+                        value={blogForm.excerpt}
+                        onChange={(e) => setBlogForm((f) => ({ ...f, excerpt: e.target.value }))}
+                        style={{ padding: "8px 12px", border: "1px solid #d0d7de", borderRadius: 6, fontSize: 13, fontFamily: "inherit" }}
+                      />
+                      <textarea
+                        placeholder="Content (HTML supported: <h2>, <p>, <ul>, <li>, <a>, <strong>, <em>)"
+                        value={blogForm.content}
+                        onChange={(e) => setBlogForm((f) => ({ ...f, content: e.target.value }))}
+                        rows={12}
+                        style={{ padding: "8px 12px", border: "1px solid #d0d7de", borderRadius: 6, fontSize: 13, fontFamily: "inherit", resize: "vertical" }}
+                      />
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={blogForm.published}
+                          onChange={(e) => setBlogForm((f) => ({ ...f, published: e.target.checked }))}
+                        />
+                        Published
+                      </label>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={saveBlogPost}
+                          style={{ padding: "8px 18px", background: "#1f6feb", border: "none", borderRadius: 6, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                        >
+                          {blogEditing === "new" ? "Create Post" : "Save Changes"}
+                        </button>
+                        <button
+                          onClick={() => setBlogEditing(null)}
+                          style={{ padding: "8px 18px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 6, color: "#57606a", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {blogPosts.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "#8b949e" }}>No blog posts yet. Click &quot;New Post&quot; to create one.</p>
+                ) : (
+                  blogPosts.map((post, i) => (
+                    <div key={post.id} style={{ padding: "10px 0", borderBottom: i < blogPosts.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>{post.title}</span>
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: "1px 6px",
+                              borderRadius: 3,
+                              background: post.published ? "#dafbe1" : "#fff8c5",
+                              color: post.published ? "#1a7f37" : "#9a6700",
+                            }}>
+                              {post.published ? "Published" : "Draft"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 11, color: "#8b949e", marginTop: 2 }}>
+                            /blog/{post.slug} · {formatDate(post.created_at)}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          <button
+                            onClick={() => {
+                              setBlogEditing(post.id);
+                              setBlogForm({
+                                slug: post.slug,
+                                title: post.title,
+                                excerpt: post.excerpt,
+                                content: post.content,
+                                published: post.published,
+                              });
+                            }}
+                            style={{ padding: "4px 10px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", color: "#1f6feb" }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteBlogPost(post.id)}
+                            style={{ padding: "4px 10px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", color: "#cf222e" }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </>
           )}
         </div>
@@ -3684,6 +4206,7 @@ export default function TenantShield() {
           Public records sourced from the City of Chicago Open Data Portal
         </div>
         <div style={{ fontSize: 11, marginTop: 8, display: "flex", justifyContent: "center", gap: 16 }}>
+          <a href="/blog" style={{ color: "#8b949e", textDecoration: "none" }}>Blog</a>
           <a href="/privacy" style={{ color: "#8b949e", textDecoration: "none" }}>Privacy Policy</a>
           <a href="/terms" style={{ color: "#8b949e", textDecoration: "none" }}>Terms of Service</a>
         </div>
