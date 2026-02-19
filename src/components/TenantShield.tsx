@@ -478,7 +478,7 @@ export default function TenantShield() {
     totalReviews: number;
     uniqueReviewers: number;
     totalSignups: number;
-    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean; isNeighborhood?: boolean; userId?: string }[];
+    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean; isNeighborhood?: boolean; userId?: string; sessionId?: string }[];
     popularLandlords: { name: string; views: number }[];
     recentReviews: { landlord_name: string; address: string; rating: number; created_at: string; text: string }[];
     activityFeed: { event_type: string; event_data: Record<string, unknown>; created_at: string }[];
@@ -646,6 +646,7 @@ export default function TenantShield() {
           hasAddressResult: r.event_data?.hasAddressResult as boolean | undefined,
           isNeighborhood: r.event_data?.isNeighborhood as boolean | undefined,
           userId: r.user_id || undefined,
+          sessionId: r.event_data?.sessionId as string | undefined,
         })),
         popularLandlords,
         recentReviews: (recentReviewsRaw || []).map((r: Record<string, unknown>) => {
@@ -3456,17 +3457,26 @@ export default function TenantShield() {
                     (() => {
                       const userColors = ["#1f6feb", "#cf222e", "#1a7f37", "#9a6700", "#6e40c9", "#d4a72c", "#e16f24", "#8250df"];
                       const userMap = new Map<string, number>();
-                      let nextColor = 0;
-                      const getUserLabel = (uid?: string) => {
-                        if (!uid) return { label: "Guest", color: "#8b949e" };
-                        if (!userMap.has(uid)) { userMap.set(uid, nextColor); nextColor++; }
-                        const idx = userMap.get(uid)!;
-                        return { label: `User ${idx + 1}`, color: userColors[idx % userColors.length] };
+                      const guestMap = new Map<string, number>();
+                      let nextUserColor = 0;
+                      let nextGuestNum = 0;
+                      const getUserLabel = (uid?: string, sid?: string) => {
+                        if (uid) {
+                          if (!userMap.has(uid)) { userMap.set(uid, nextUserColor); nextUserColor++; }
+                          const idx = userMap.get(uid)!;
+                          return { label: `User ${idx + 1}`, color: userColors[idx % userColors.length] };
+                        }
+                        if (sid) {
+                          if (!guestMap.has(sid)) { guestMap.set(sid, nextGuestNum); nextGuestNum++; }
+                          const idx = guestMap.get(sid)!;
+                          return { label: `Guest ${idx + 1}`, color: "#" + ["8b949e", "6e7781", "57606a", "424a53"][idx % 4] };
+                        }
+                        return { label: "Guest", color: "#8b949e" };
                       };
                       return adminData.recentSearches.map((s, i) => {
                         const hasResults = (s.resultCount !== undefined && s.resultCount > 0) || s.hasAddressResult || s.isNeighborhood;
                         const hasData = s.resultCount !== undefined;
-                        const user = getUserLabel(s.userId);
+                        const user = getUserLabel(s.userId, s.sessionId);
                         return (
                           <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "6px 0", borderBottom: i < adminData.recentSearches.length - 1 ? "1px solid #f0f3f6" : "none", flexWrap: "wrap" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
