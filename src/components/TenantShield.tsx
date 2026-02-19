@@ -3397,6 +3397,12 @@ export default function TenantShield() {
       {/* ─── ADMIN DASHBOARD ─── */}
       {view === "admin" && isAdmin && (
         <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px" }}>
+          <style>{`
+            .admin-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+            @media (max-width: 640px) {
+              .admin-two-col { grid-template-columns: 1fr; }
+            }
+          `}</style>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
             Admin Dashboard
           </h1>
@@ -3436,7 +3442,7 @@ export default function TenantShield() {
               </div>
 
               {/* Two column panels */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <div className="admin-two-col">
                 {/* Search Log */}
                 <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", maxHeight: 480, overflowY: "auto" }}>
                   <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -3449,13 +3455,15 @@ export default function TenantShield() {
                       const hasResults = (s.resultCount !== undefined && s.resultCount > 0) || s.hasAddressResult;
                       const hasData = s.resultCount !== undefined;
                       return (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < adminData.recentSearches.length - 1 ? "1px solid #f0f3f6" : "none" }}>
-                          {hasData && (
-                            <span style={{ fontSize: 12, flexShrink: 0 }}>
-                              {hasResults ? "\u2705" : "\u274C"}
-                            </span>
-                          )}
-                          <span style={{ fontSize: 13, color: "#1f2328", fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.query}</span>
+                        <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "6px 0", borderBottom: i < adminData.recentSearches.length - 1 ? "1px solid #f0f3f6" : "none", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                            {hasData && (
+                              <span style={{ fontSize: 12, flexShrink: 0 }}>
+                                {hasResults ? "\u2705" : "\u274C"}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 13, color: "#1f2328", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.query}</span>
+                          </div>
                           <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", flexShrink: 0 }}>{formatDateTime(s.created_at)}</span>
                         </div>
                       );
@@ -3607,7 +3615,7 @@ export default function TenantShield() {
                       detail = JSON.stringify(d);
                     }
                     return (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: i < adminData.activityFeed.length - 1 ? "1px solid #f0f3f6" : "none" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 0", borderBottom: i < adminData.activityFeed.length - 1 ? "1px solid #f0f3f6" : "none", flexWrap: "wrap" }}>
                         <span style={{
                           fontSize: 11,
                           fontWeight: 600,
@@ -3616,12 +3624,12 @@ export default function TenantShield() {
                           background: color + "18",
                           color,
                           whiteSpace: "nowrap",
-                          minWidth: 80,
+                          minWidth: 70,
                           textAlign: "center",
                         }}>
                           {label}
                         </span>
-                        <span style={{ fontSize: 13, color: "#424a53", flex: 1 }}>{detail}</span>
+                        <span style={{ fontSize: 13, color: "#424a53", flex: 1, minWidth: 120 }}>{detail}</span>
                         <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap" }}>{formatDateTime(ev.created_at)}</span>
                       </div>
                     );
