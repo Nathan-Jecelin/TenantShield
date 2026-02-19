@@ -3567,12 +3567,45 @@ export default function TenantShield() {
                       review_submit: "#9a6700",
                       login: "#6e40c9",
                     };
+                    const d = ev.event_data as Record<string, unknown>;
                     const color = typeColors[ev.event_type] || "#57606a";
+                    let label = "";
                     let detail = "";
-                    if (ev.event_type === "search") detail = `"${(ev.event_data as Record<string, unknown>).query || ""}"`;
-                    else if (ev.event_type === "page_view") detail = `${(ev.event_data as Record<string, unknown>).view || ""}${(ev.event_data as Record<string, unknown>).landlord ? ` — ${(ev.event_data as Record<string, unknown>).landlord}` : ""}`;
-                    else if (ev.event_type === "review_submit") detail = (ev.event_data as Record<string, unknown>).landlord as string || "";
-                    else if (ev.event_type === "login") detail = (ev.event_data as Record<string, unknown>).method as string || "";
+                    if (ev.event_type === "search") {
+                      label = "Search";
+                      const q = (d.query as string) || "";
+                      const rc = d.resultCount as number | undefined;
+                      const hasAddr = d.hasAddressResult as boolean | undefined;
+                      const isNh = d.isNeighborhood as boolean | undefined;
+                      detail = `"${q}"`;
+                      if (rc !== undefined) {
+                        const parts: string[] = [];
+                        if (rc > 0) parts.push(`${rc} landlord result${rc !== 1 ? "s" : ""}`);
+                        if (hasAddr) parts.push("address match");
+                        if (isNh) parts.push("neighborhood match");
+                        detail += parts.length > 0 ? ` — ${parts.join(", ")}` : " — no results";
+                      }
+                    } else if (ev.event_type === "page_view") {
+                      label = "Page View";
+                      const viewName = (d.view as string) || "";
+                      const landlord = d.landlord as string | undefined;
+                      if (landlord) detail = `Viewed landlord profile: ${landlord}`;
+                      else if (viewName === "results") detail = "Viewed search results";
+                      else if (viewName === "address-profile") detail = "Viewed address profile";
+                      else if (viewName === "review") detail = "Opened review form";
+                      else if (viewName === "account") detail = "Viewed account page";
+                      else detail = `Viewed: ${viewName}`;
+                    } else if (ev.event_type === "review_submit") {
+                      label = "Review";
+                      detail = `Submitted review for ${(d.landlord as string) || "unknown landlord"}`;
+                    } else if (ev.event_type === "login") {
+                      label = "Login";
+                      const method = (d.method as string) || "email";
+                      detail = `User signed in via ${method}`;
+                    } else {
+                      label = ev.event_type.replace(/_/g, " ");
+                      detail = JSON.stringify(d);
+                    }
                     return (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: i < adminData.activityFeed.length - 1 ? "1px solid #f0f3f6" : "none" }}>
                         <span style={{
@@ -3586,10 +3619,10 @@ export default function TenantShield() {
                           minWidth: 80,
                           textAlign: "center",
                         }}>
-                          {ev.event_type.replace("_", " ")}
+                          {label}
                         </span>
                         <span style={{ fontSize: 13, color: "#424a53", flex: 1 }}>{detail}</span>
-                        <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap" }}>{formatDate(ev.created_at)}</span>
+                        <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap" }}>{formatDateTime(ev.created_at)}</span>
                       </div>
                     );
                   })
