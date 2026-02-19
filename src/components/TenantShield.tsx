@@ -3657,6 +3657,10 @@ export default function TenantShield() {
         <div style={{ fontSize: 11, color: "#b1bac4", marginTop: 4 }}>
           Public records sourced from the City of Chicago Open Data Portal
         </div>
+        <div style={{ fontSize: 11, marginTop: 8, display: "flex", justifyContent: "center", gap: 16 }}>
+          <a href="/privacy" style={{ color: "#8b949e", textDecoration: "none" }}>Privacy Policy</a>
+          <a href="/terms" style={{ color: "#8b949e", textDecoration: "none" }}>Terms of Service</a>
+        </div>
       </footer>
 
       {showGate && (
