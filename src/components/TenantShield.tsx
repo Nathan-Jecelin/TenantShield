@@ -2648,7 +2648,7 @@ export default function TenantShield() {
                   onChange={(e) =>
                     setForm({ ...form, landlordName: e.target.value })
                   }
-                  placeholder="e.g. Peak Properties"
+                  placeholder="e.g. Landlord or management company name"
                   style={inp}
                 />
               </div>
