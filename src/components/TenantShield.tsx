@@ -588,7 +588,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     totalReviews: number;
     uniqueReviewers: number;
     totalSignups: number;
-    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean; isNeighborhood?: boolean; userId?: string; sessionId?: string }[];
+    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean; isNeighborhood?: boolean; searchType?: string; userId?: string; sessionId?: string }[];
     popularLandlords: { name: string; views: number }[];
     recentReviews: { landlord_name: string; address: string; rating: number; created_at: string; text: string }[];
     activityFeed: { event_type: string; event_data: Record<string, unknown>; created_at: string }[];
@@ -808,6 +808,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           resultCount: r.event_data?.resultCount as number | undefined,
           hasAddressResult: r.event_data?.hasAddressResult as boolean | undefined,
           isNeighborhood: r.event_data?.isNeighborhood as boolean | undefined,
+          searchType: r.event_data?.searchType as string | undefined,
           userId: r.user_id || undefined,
           sessionId: r.event_data?.sessionId as string | undefined,
         })),
@@ -959,12 +960,19 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         }
       }
 
+      // Classify search type for admin tracking
+      const searchType = neighborhoodMatch ? "neighborhood"
+        : !!addressResultData ? "address"
+        : found.length > 0 ? "landlord"
+        : "unknown";
+
       // Track search event after results are known
       trackEvent("search", {
         query: t,
         resultCount: found.length,
         hasAddressResult: !!addressResultData,
         isNeighborhood: neighborhoodMatch,
+        searchType,
       }, auth.user?.id);
 
       setLoading(false);
@@ -1012,17 +1020,74 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     e.preventDefault();
     if (!form.text || !form.landlordName || !form.overall) return;
 
-    const ex = landlords.find(
+    let ex = landlords.find(
       (ll) => ll.name.toLowerCase() === form.landlordName.toLowerCase()
     );
 
-    if (isSupabaseConfigured() && ex) {
+    if (isSupabaseConfigured()) {
       setLoading(true);
-      const ok = await submitReviewToDb(ex.id, form, auth.user?.id);
-      if (ok) {
-        // Refresh landlord data
-        const updated = await fetchAllLandlords();
-        if (updated.length > 0) setLandlords(updated);
+
+      // If landlord/company doesn't exist, create it so the review gets linked
+      if (!ex) {
+        const slug = form.landlordName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        const { data: newLandlord, error: createError } = await getSupabase()!
+          .from("landlords")
+          .insert({
+            slug,
+            name: form.landlordName.trim(),
+            neighborhood: "",
+            type: "Property Management Company",
+            violations: 0,
+            complaints: 0,
+            review_count: 0,
+            score_maintenance: 0,
+            score_communication: 0,
+            score_deposit: 0,
+            score_honesty: 0,
+            score_overall: 0,
+          })
+          .select()
+          .single();
+
+        if (!createError && newLandlord) {
+          // Link the review address to the new landlord
+          if (form.address) {
+            await getSupabase()!.from("addresses").insert({
+              landlord_id: newLandlord.id,
+              address: form.address.trim(),
+            });
+          }
+          // Create a temporary Landlord object so submitReviewToDb works
+          ex = {
+            id: newLandlord.id,
+            slug,
+            name: form.landlordName.trim(),
+            addresses: form.address ? [form.address.trim()] : [],
+            neighborhood: "",
+            type: "Property Management Company",
+            scores: { maintenance: 0, communication: 0, deposit: 0, honesty: 0, overall: 0 },
+            reviewCount: 0,
+            violations: 0,
+            complaints: 0,
+            reviews: [],
+          };
+        }
+      }
+
+      if (ex) {
+        // If user provided an address and it's not already linked, add it
+        if (form.address && !ex.addresses.some((a) => a.toLowerCase() === form.address.toLowerCase())) {
+          await getSupabase()!.from("addresses").insert({
+            landlord_id: ex.id,
+            address: form.address.trim(),
+          });
+        }
+
+        const ok = await submitReviewToDb(ex.id, form, auth.user?.id);
+        if (ok) {
+          const updated = await fetchAllLandlords();
+          if (updated.length > 0) setLandlords(updated);
+        }
       }
       setLoading(false);
     } else if (ex) {
@@ -1036,7 +1101,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
       };
       setLandlords((p) =>
         p.map((ll) =>
-          ll.id === ex.id
+          ll.id === ex!.id
             ? { ...ll, reviews: [nr, ...ll.reviews], reviewCount: ll.reviewCount + 1 }
             : ll
         )
@@ -1044,7 +1109,12 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     }
     setHasReviewed(true);
     setSubmitted(true);
-    trackEvent("review_submit", { landlord: form.landlordName, rating: form.overall }, auth.user?.id);
+    trackEvent("review_submit", {
+      landlord: form.landlordName,
+      address: form.address || undefined,
+      rating: form.overall,
+      isNewLandlord: !landlords.find((ll) => ll.name.toLowerCase() === form.landlordName.toLowerCase()),
+    }, auth.user?.id);
   }
 
   const inp: React.CSSProperties = {
@@ -1135,6 +1205,17 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           </span>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <a
+            href="/blog"
+            style={{
+              fontSize: 13,
+              color: "#57606a",
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+          >
+            Blog
+          </a>
           {hasReviewed && (
             <span style={{ fontSize: 12, color: "#1a7f37", fontWeight: 600 }}>
               ✓ Full Access
@@ -3848,10 +3929,17 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                         }
                         return { label: "Guest", color: "#8b949e" };
                       };
+                      const typeColors: Record<string, { bg: string; color: string; label: string }> = {
+                        landlord: { bg: "#ddf4ff", color: "#0969da", label: "Company" },
+                        address: { bg: "#fff1e5", color: "#bc4c00", label: "Address" },
+                        neighborhood: { bg: "#dafbe1", color: "#1a7f37", label: "Area" },
+                        unknown: { bg: "#f6f8fa", color: "#8b949e", label: "?" },
+                      };
                       return adminData.recentSearches.map((s, i) => {
                         const hasResults = (s.resultCount !== undefined && s.resultCount > 0) || s.hasAddressResult || s.isNeighborhood;
                         const hasData = s.resultCount !== undefined;
                         const user = getUserLabel(s.userId, s.sessionId);
+                        const st = typeColors[s.searchType || "unknown"] || typeColors.unknown;
                         return (
                           <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "6px 0", borderBottom: i < adminData.recentSearches.length - 1 ? "1px solid #f0f3f6" : "none", flexWrap: "wrap" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
@@ -3863,6 +3951,11 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                               <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, background: user.color + "18", color: user.color, whiteSpace: "nowrap", flexShrink: 0 }}>
                                 {user.label}
                               </span>
+                              {s.searchType && (
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: st.bg, color: st.color, whiteSpace: "nowrap", flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>
+                                  {st.label}
+                                </span>
+                              )}
                               <span style={{ fontSize: 13, color: "#1f2328", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.query}</span>
                             </div>
                             <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", flexShrink: 0 }}>{formatDateTime(s.created_at)}</span>
