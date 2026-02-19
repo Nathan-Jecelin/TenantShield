@@ -478,7 +478,7 @@ export default function TenantShield() {
     totalReviews: number;
     uniqueReviewers: number;
     totalSignups: number;
-    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean }[];
+    recentSearches: { query: string; created_at: string; resultCount?: number; hasAddressResult?: boolean; isNeighborhood?: boolean }[];
     popularLandlords: { name: string; views: number }[];
     recentReviews: { landlord_name: string; address: string; rating: number; created_at: string; text: string }[];
     activityFeed: { event_type: string; event_data: Record<string, unknown>; created_at: string }[];
@@ -644,6 +644,7 @@ export default function TenantShield() {
           created_at: r.created_at,
           resultCount: r.event_data?.resultCount as number | undefined,
           hasAddressResult: r.event_data?.hasAddressResult as boolean | undefined,
+          isNeighborhood: r.event_data?.isNeighborhood as boolean | undefined,
         })),
         popularLandlords,
         recentReviews: (recentReviewsRaw || []).map((r: Record<string, unknown>) => {
@@ -3452,7 +3453,7 @@ export default function TenantShield() {
                     <p style={{ fontSize: 13, color: "#8b949e" }}>No searches yet</p>
                   ) : (
                     adminData.recentSearches.map((s, i) => {
-                      const hasResults = (s.resultCount !== undefined && s.resultCount > 0) || s.hasAddressResult;
+                      const hasResults = (s.resultCount !== undefined && s.resultCount > 0) || s.hasAddressResult || s.isNeighborhood;
                       const hasData = s.resultCount !== undefined;
                       return (
                         <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "6px 0", borderBottom: i < adminData.recentSearches.length - 1 ? "1px solid #f0f3f6" : "none", flexWrap: "wrap" }}>
