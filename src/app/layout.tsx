@@ -35,8 +35,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "TenantShield",
+    url: "https://mytenantshield.com",
+    description:
+      "Free tool to search building violations, 311 complaints, and tenant reviews for Chicago rental properties before you sign a lease.",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: "https://mytenantshield.com/?q={search_term_string}",
+      "query-input": "required name=search_term_string",
+    },
+  };
+
   return (
     <html lang="en">
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

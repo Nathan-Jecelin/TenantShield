@@ -54,5 +54,45 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function BlogPostPage({ params }: PageProps) {
   const { slug } = await params;
-  return <BlogPost slug={slug} />;
+
+  const sb = getServerSupabase();
+  let jsonLd = null;
+  if (sb) {
+    const { data: post } = await sb
+      .from("blog_posts")
+      .select("title, excerpt, created_at, updated_at")
+      .eq("slug", slug)
+      .eq("published", true)
+      .single();
+
+    if (post) {
+      jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        headline: post.title,
+        description: post.excerpt,
+        url: `https://mytenantshield.com/blog/${slug}`,
+        datePublished: post.created_at,
+        dateModified: post.updated_at,
+        publisher: {
+          "@type": "Organization",
+          name: "TenantShield",
+          url: "https://mytenantshield.com",
+        },
+        isPartOf: { "@type": "WebSite", name: "TenantShield", url: "https://mytenantshield.com" },
+      };
+    }
+  }
+
+  return (
+    <>
+      {jsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      )}
+      <BlogPost slug={slug} />
+    </>
+  );
 }

@@ -37,5 +37,34 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function AddressPage({ params }: PageProps) {
   const { slug } = await params;
   const address = slugToAddress(slug);
-  return <TenantShield initialView="address-profile" initialAddress={address} />;
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: `${address} Building Violations and Tenant Reviews`,
+    url: `https://mytenantshield.com/address/${slug}`,
+    description: `View building violations, 311 complaints, building permits, and tenant reviews for ${address}, Chicago IL.`,
+    isPartOf: { "@type": "WebSite", name: "TenantShield", url: "https://mytenantshield.com" },
+    about: {
+      "@type": "Place",
+      name: address,
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: address,
+        addressLocality: "Chicago",
+        addressRegion: "IL",
+        addressCountry: "US",
+      },
+    },
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <TenantShield initialView="address-profile" initialAddress={address} />
+    </>
+  );
 }
