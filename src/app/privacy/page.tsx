@@ -23,8 +23,11 @@ export default function Privacy() {
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Data Sharing</h2>
       <p>We do not sell, trade, or share your personal information with third parties. Your data is stored securely using Supabase infrastructure.</p>
 
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Analytics</h2>
+      <p>We use Google Analytics to understand how visitors interact with TenantShield. Google Analytics collects information such as pages visited, time spent on pages, and general location (city/country level). This data is aggregated and anonymous — it does not personally identify you. Google may use cookies to distinguish unique users. You can opt out of Google Analytics by installing the <a href="https://tools.google.com/dlpage/gaoptout" style={{ color: "#1f6feb", textDecoration: "none" }}>Google Analytics Opt-out Browser Add-on</a>.</p>
+
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Cookies</h2>
-      <p>We use essential cookies for authentication sessions. We do not use advertising or third-party tracking cookies.</p>
+      <p>We use essential cookies for authentication sessions. We also use cookies set by Google Analytics to measure site usage. We do not use advertising cookies.</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Your Rights</h2>
       <p>You can request deletion of your account and associated data at any time by contacting us.</p>
