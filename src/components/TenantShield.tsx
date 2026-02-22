@@ -1488,7 +1488,22 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 flexWrap: "wrap",
               }}
             >
-              {["Lakeview", "Lincoln Park", "Hyde Park", "Gold Coast"].map(
+              {[
+                "Lakeview", "Lincoln Park", "Hyde Park", "Gold Coast",
+                "Wicker Park", "Bucktown", "Logan Square", "Pilsen",
+                "Uptown", "Rogers Park", "Edgewater", "Andersonville",
+                "Lincoln Square", "North Center", "Avondale", "Humboldt Park",
+                "West Town", "Bridgeport", "Bronzeville", "Kenwood",
+                "South Shore", "Chatham", "South Loop", "Chinatown",
+                "Little Village", "Back of the Yards", "Albany Park",
+                "Irving Park", "Portage Park", "Jefferson Park",
+                "Englewood", "Woodlawn", "Austin", "Garfield Ridge",
+                "Brighton Park", "McKinley Park", "Gage Park",
+                "Beverly", "Morgan Park", "Pullman", "Roseland",
+                "West Ridge", "Belmont Cragin", "Hermosa",
+                "South Chicago", "East Side", "Hegewisch",
+                "Ashburn", "Auburn Gresham", "Chicago Lawn",
+              ].map(
                 (t) => (
                   <button
                     key={t}
@@ -1525,7 +1540,26 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             </p>
             <div style={{ fontSize: 12, color: "#8b949e", marginBottom: 10 }}>Try an example address:</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-              {["1550 N Lake Shore Dr", "1130 S Michigan Ave", "1401 W Division St", "6217 S Dorchester Ave"].map((addr) => (
+              {[
+                "1550 N Lake Shore Dr", "1130 S Michigan Ave", "1401 W Division St", "6217 S Dorchester Ave",
+                "4850 S Lake Shore Dr", "2920 N Commonwealth Ave", "3950 N Lake Shore Dr", "530 N Lake Shore Dr",
+                "1640 E 50th St", "5000 S Cornell Ave", "5100 S Hyde Park Blvd", "1700 E 56th St",
+                "2800 N Lake Shore Dr", "3200 N Lake Shore Dr", "3600 N Lake Shore Dr",
+                "400 E Randolph St", "600 S Dearborn St", "1000 N Lake Shore Dr",
+                "4600 S Lake Park Ave", "7000 S South Shore Dr", "7350 S South Shore Dr",
+                "1960 N Lincoln Park W", "2440 N Lakeview Ave", "655 W Irving Park Rd",
+                "4545 N Sheridan Rd", "5555 N Sheridan Rd", "6101 N Sheridan Rd",
+                "1209 N Wells St", "1540 N State Pkwy", "1350 N Lake Shore Dr",
+                "2101 S Michigan Ave", "3033 S Michigan Ave",
+                "1815 W Division St", "2000 W Pierce Ave", "1900 N Milwaukee Ave",
+                "2600 N Kimball Ave", "3300 W Diversey Ave", "2425 W Fullerton Ave",
+                "1800 S Halsted St", "3100 S Canal St", "1050 W Hubbard St",
+                "4000 W North Ave", "5400 W Chicago Ave", "5700 S Ashland Ave",
+                "7500 S Essex Ave", "8300 S Ellis Ave", "9400 S Stony Island Ave",
+                "6300 S Woodlawn Ave", "6500 S University Ave", "4700 S Champlain Ave",
+                "1122 E 47th St", "3500 W 63rd St", "7900 S Cottage Grove Ave",
+                "4520 S Drexel Blvd", "1400 E 55th St", "5050 S Lake Shore Dr",
+              ].map((addr) => (
                 <button
                   key={addr}
                   onClick={() => { setQuery(addr); doSearch(addr); }}
