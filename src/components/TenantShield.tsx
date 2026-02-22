@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
 import { trackEvent } from "@/lib/analytics";
 import { addressToSlug } from "@/lib/slugs";
+import NewsletterSignup from "@/components/NewsletterSignup";
 
 // ─── TYPES ───
 
@@ -1672,6 +1673,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               Write a Review
             </button>
           </div>
+          <NewsletterSignup />
         </div>
       )}
 

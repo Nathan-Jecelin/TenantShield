@@ -26,6 +26,9 @@ export default function Privacy() {
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Analytics</h2>
       <p>We use Google Analytics to understand how visitors interact with TenantShield. Google Analytics collects information such as pages visited, time spent on pages, and general location (city/country level). This data is aggregated and anonymous — it does not personally identify you. Google may use cookies to distinguish unique users. You can opt out of Google Analytics by installing the <a href="https://tools.google.com/dlpage/gaoptout" style={{ color: "#1f6feb", textDecoration: "none" }}>Google Analytics Opt-out Browser Add-on</a>.</p>
 
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Newsletter</h2>
+      <p>If you subscribe to our newsletter, we collect your email address to send weekly updates about new blog posts, tenant reviews, and Chicago renter news. Emails are sent via <a href="https://resend.com" style={{ color: "#1f6feb", textDecoration: "none" }}>Resend</a>. You can unsubscribe at any time using the link in every email. Your email is stored securely and is never shared with third parties.</p>
+
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Cookies</h2>
       <p>We use essential cookies for authentication sessions. We also use cookies set by Google Analytics to measure site usage. We do not use advertising cookies.</p>
 

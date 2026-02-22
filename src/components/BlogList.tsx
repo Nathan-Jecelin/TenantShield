@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getSupabase } from "@/lib/supabase";
+import NewsletterSignup from "@/components/NewsletterSignup";
 
 interface Post {
   slug: string;
@@ -213,6 +214,8 @@ export default function BlogList() {
           </div>
         )}
       </div>
+
+      <NewsletterSignup />
 
       <footer
         style={{
