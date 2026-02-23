@@ -33,10 +33,10 @@ export default function Privacy() {
       <p>We use essential cookies for authentication sessions. We also use cookies set by Google Analytics to measure site usage. We do not use advertising cookies.</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Your Rights</h2>
-      <p>You can request deletion of your account and associated data at any time by contacting us.</p>
+      <p>You can request deletion of your account and associated data at any time by emailing <a href="mailto:nathan@mytenantshield.com" style={{ color: "#1f6feb", textDecoration: "none" }}>nathan@mytenantshield.com</a>.</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Contact</h2>
-      <p>For questions about this privacy policy, reach out via the TenantShield platform.</p>
+      <p>For questions about this privacy policy, email us at <a href="mailto:nathan@mytenantshield.com" style={{ color: "#1f6feb", textDecoration: "none" }}>nathan@mytenantshield.com</a>.</p>
 
       <div style={{ marginTop: 48, paddingTop: 24, borderTop: "1px solid #e8ecf0" }}>
         <a href="/" style={{ color: "#1f6feb", textDecoration: "none", fontWeight: 600 }}>← Back to TenantShield</a>

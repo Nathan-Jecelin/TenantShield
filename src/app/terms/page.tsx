@@ -33,6 +33,9 @@ export default function Terms() {
       <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Changes to Terms</h2>
       <p>We may update these terms from time to time. Continued use of the service constitutes acceptance of any changes.</p>
 
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginTop: 32, marginBottom: 12 }}>Contact</h2>
+      <p>For questions about these terms, email us at <a href="mailto:nathan@mytenantshield.com" style={{ color: "#1f6feb", textDecoration: "none" }}>nathan@mytenantshield.com</a>.</p>
+
       <div style={{ marginTop: 48, paddingTop: 24, borderTop: "1px solid #e8ecf0" }}>
         <a href="/" style={{ color: "#1f6feb", textDecoration: "none", fontWeight: 600 }}>← Back to TenantShield</a>
       </div>
