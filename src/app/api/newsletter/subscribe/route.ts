@@ -20,11 +20,16 @@ export async function POST(req: NextRequest) {
   }
 
   // Check if already exists
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('newsletter_subscribers')
     .select('id, status')
     .eq('email', email)
-    .single();
+    .maybeSingle();
+
+  if (lookupError) {
+    console.error('Newsletter lookup error:', lookupError);
+    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
+  }
 
   if (existing) {
     if (existing.status === 'active') {
@@ -48,6 +53,7 @@ export async function POST(req: NextRequest) {
     .insert({ email });
 
   if (error) {
+    console.error('Newsletter insert error:', error);
     return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 
