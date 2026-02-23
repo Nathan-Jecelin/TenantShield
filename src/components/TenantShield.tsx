@@ -1008,13 +1008,17 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             // Fetch Chicago data for all addresses in parallel
             const allResults = await Promise.all(
               uniqueAddresses.map(async ({ raw, variants }) => {
-                const [v, c, p] = await Promise.all([
-                  fetchBuildingViolations(variants),
-                  fetchServiceRequests(variants),
-                  fetchBuildingPermits(variants),
-                ]);
-                if (v.length > 0 || c.length > 0 || p.length > 0) {
-                  return { address: raw.split(",")[0].trim(), violations: v, complaints: c, permits: p };
+                try {
+                  const [v, c, p] = await Promise.all([
+                    fetchBuildingViolations(variants),
+                    fetchServiceRequests(variants),
+                    fetchBuildingPermits(variants),
+                  ]);
+                  if (v.length > 0 || c.length > 0 || p.length > 0) {
+                    return { address: raw.split(",")[0].trim(), violations: v, complaints: c, permits: p };
+                  }
+                } catch {
+                  // Individual address lookup failed, skip it
                 }
                 return null;
               })
