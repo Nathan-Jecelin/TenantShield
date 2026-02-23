@@ -44,11 +44,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'No active subscribers.' });
   }
 
+  // Auto-publish any scheduled posts whose publish_at has arrived
+  await supabase
+    .from('blog_posts')
+    .update({ published: true })
+    .eq('published', false)
+    .not('publish_at', 'is', null)
+    .lte('publish_at', new Date().toISOString());
+
   // Get new blog posts from last 7 days
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: newPosts } = await supabase
     .from('blog_posts')
     .select('title, slug, excerpt')
+    .eq('published', true)
     .gte('created_at', weekAgo)
     .order('created_at', { ascending: false });
 
