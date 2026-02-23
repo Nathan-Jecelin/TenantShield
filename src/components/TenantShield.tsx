@@ -579,6 +579,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
   const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
+  const [showGiveawayBanner, setShowGiveawayBanner] = useState(true);
   const [adminReviewPage, setAdminReviewPage] = useState(0);
   const initialAddressLoaded = useRef(false);
   const [adminData, setAdminData] = useState<{
@@ -1328,6 +1329,51 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           )}
         </div>
       </nav>
+
+      {/* Giveaway Banner */}
+      {showGiveawayBanner && (view === "home" || view === "address-profile" || view === "results") && (
+        <div
+          style={{
+            background: "linear-gradient(135deg, #1a56db, #7c3aed)",
+            color: "#fff",
+            padding: "10px 20px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+            position: "relative",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          <span
+            onClick={goReview}
+            style={{ cursor: "pointer", textAlign: "center", lineHeight: 1.4 }}
+          >
+            🎁 Leave a review and enter to win a $25 Amazon gift card! Winner drawn March 31st.
+          </span>
+          <button
+            onClick={() => setShowGiveawayBanner(false)}
+            style={{
+              position: "absolute",
+              right: 12,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "none",
+              border: "none",
+              color: "rgba(255,255,255,0.7)",
+              fontSize: 18,
+              cursor: "pointer",
+              padding: "4px 8px",
+              lineHeight: 1,
+              fontFamily: "inherit",
+            }}
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {view !== "home" && (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "12px 20px 0" }}>
@@ -3181,11 +3227,26 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               style={{
                 fontSize: 14,
                 color: "#57606a",
-                margin: "0 0 20px",
+                margin: "0 0 16px",
               }}
             >
               Your review helps other Chicago renters make better decisions.
             </p>
+            <div
+              style={{
+                background: "linear-gradient(135deg, #1a56db, #7c3aed)",
+                color: "#fff",
+                padding: "12px 16px",
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                marginBottom: 20,
+                textAlign: "center",
+                lineHeight: 1.5,
+              }}
+            >
+              🎁 Every review this month enters you to win a $25 Amazon gift card! Winner drawn March 31st.
+            </div>
             <div
               style={{
                 border: "1px solid #e8ecf0",
