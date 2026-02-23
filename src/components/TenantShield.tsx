@@ -2962,9 +2962,15 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                         {p.work_description}
                       </p>
                     )}
+                    {p.contact_1_name && (
+                      <div style={{ fontSize: 12, color: "#57606a", paddingLeft: 16, marginBottom: 2 }}>
+                        {p.contact_1_type ? `${p.contact_1_type}: ` : "Contractor: "}{p.contact_1_name}
+                      </div>
+                    )}
                     <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {p.issue_date && <span>Issued {formatDate(p.issue_date)}</span>}
                       {p.permit_ && <span> · Permit #{p.permit_}</span>}
+                      {p.reported_cost && Number(p.reported_cost) > 0 && <span> · Est. cost ${Number(p.reported_cost).toLocaleString()}</span>}
                       {p.total_fee && Number(p.total_fee) > 0 && <span> · Fee ${Number(p.total_fee).toLocaleString()}</span>}
                     </div>
                   </div>

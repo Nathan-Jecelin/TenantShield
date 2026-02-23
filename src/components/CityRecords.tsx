@@ -40,8 +40,17 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function parseViolationLocation(raw: string | undefined): string | null {
+  if (!raw) return null;
+  // Format: "LOCATION : FLOOR : DETAIL" — clean up and return readable string
+  const parts = raw.split(":").map((s) => s.trim()).filter((s) => s && s !== "OTHER" && s !== "N/A");
+  if (parts.length === 0) return null;
+  return parts.join(" · ");
+}
+
 function ViolationCard({ v }: { v: BuildingViolation }) {
   const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
+  const location = parseViolationLocation(v.violation_location);
   return (
     <div
       style={{
@@ -66,16 +75,30 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
           {formatDate(v.violation_date)}
           {v.department_bureau && <span> · {v.department_bureau}</span>}
         </span>
-        <span style={{
-          fontSize: 11,
-          fontWeight: 600,
-          padding: "2px 8px",
-          borderRadius: 4,
-          background: isOpen ? "#ffebe9" : "#dafbe1",
-          color: isOpen ? "#cf222e" : "#1a7f37",
-        }}>
-          {isOpen ? "Open" : "Resolved"}
-        </span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {v.inspection_status && v.inspection_status.toUpperCase() !== "UNKNOWN" && (
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: v.inspection_status.toUpperCase() === "FAILED" ? "#fff1e5" : "#dafbe1",
+              color: v.inspection_status.toUpperCase() === "FAILED" ? "#bc4c00" : "#1a7f37",
+            }}>
+              {v.inspection_status}
+            </span>
+          )}
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: 4,
+            background: isOpen ? "#ffebe9" : "#dafbe1",
+            color: isOpen ? "#cf222e" : "#1a7f37",
+          }}>
+            {isOpen ? "Open" : "Resolved"}
+          </span>
+        </div>
       </div>
       <div
         style={{
@@ -87,6 +110,11 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
       >
         {v.violation_description}
       </div>
+      {location && (
+        <div style={{ fontSize: 12, color: "#57606a", marginBottom: 6 }}>
+          Location: {location}
+        </div>
+      )}
       {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
         <div style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, marginBottom: 6, fontStyle: "italic" }}>
           Inspector notes: {v.violation_inspector_comments}
@@ -109,6 +137,9 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
         {v.inspection_category && <span>{v.inspection_category}</span>}
         {v.violation_code && <span>Code {v.violation_code}</span>}
         <span>{v.address}</span>
+        {v.violation_last_modified_date && v.violation_last_modified_date !== v.violation_date && (
+          <span>Updated {formatDate(v.violation_last_modified_date)}</span>
+        )}
       </div>
     </div>
   );
@@ -116,6 +147,7 @@ function ViolationCard({ v }: { v: BuildingViolation }) {
 
 function ComplaintCard({ c }: { c: ServiceRequest }) {
   const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
+  const isDuplicate = c.duplicate === "true";
   return (
     <div
       style={{
@@ -124,6 +156,7 @@ function ComplaintCard({ c }: { c: ServiceRequest }) {
         borderRadius: 6,
         background: "#fff",
         marginBottom: 8,
+        opacity: isDuplicate ? 0.7 : 1,
       }}
     >
       <div
@@ -138,17 +171,32 @@ function ComplaintCard({ c }: { c: ServiceRequest }) {
       >
         <span style={{ fontSize: 12, color: "#8b949e" }}>
           {formatDate(c.created_date)}
+          {c.origin && <span> · via {c.origin}</span>}
         </span>
-        <span style={{
-          fontSize: 11,
-          fontWeight: 600,
-          padding: "2px 8px",
-          borderRadius: 4,
-          background: isClosed ? "#dafbe1" : "#fff1e5",
-          color: isClosed ? "#1a7f37" : "#bc4c00",
-        }}>
-          {isClosed ? "Resolved" : "Open"}
-        </span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {isDuplicate && (
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: "#f6f8fa",
+              color: "#8b949e",
+            }}>
+              Duplicate
+            </span>
+          )}
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: 4,
+            background: isClosed ? "#dafbe1" : "#fff1e5",
+            color: isClosed ? "#1a7f37" : "#bc4c00",
+          }}>
+            {isClosed ? "Resolved" : "Open"}
+          </span>
+        </div>
       </div>
       <div
         style={{
@@ -177,6 +225,9 @@ function ComplaintCard({ c }: { c: ServiceRequest }) {
         <span>#{c.sr_number}</span>
         <span>{c.street_address}</span>
         {isClosed && c.closed_date && <span>Closed {formatDate(c.closed_date)}</span>}
+        {!isClosed && c.last_modified_date && c.last_modified_date !== c.created_date && (
+          <span>Updated {formatDate(c.last_modified_date)}</span>
+        )}
         {c.ward && <span>Ward {c.ward}</span>}
       </div>
     </div>

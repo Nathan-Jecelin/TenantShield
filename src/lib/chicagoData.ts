@@ -8,9 +8,11 @@ export interface BuildingViolation {
   violation_status: string;
   violation_status_date: string;
   violation_description: string;
+  violation_location: string;
   violation_inspector_comments: string;
   violation_ordinance: string;
   violation_code: string;
+  violation_last_modified_date: string;
   inspection_category: string;
   inspection_status: string;
   department_bureau: string;
@@ -21,9 +23,12 @@ export interface ServiceRequest {
   sr_number: string;
   sr_type: string;
   status: string;
+  origin: string;
   created_date: string;
+  last_modified_date: string;
   closed_date: string;
   owner_department: string;
+  duplicate: string;
   ward: string;
   zip_code: string;
   street_address: string;
@@ -34,9 +39,13 @@ export interface BuildingPermit {
   permit_: string;
   permit_status: string;
   permit_type: string;
+  review_type: string;
   issue_date: string;
   work_description: string;
+  reported_cost: string;
   total_fee: string;
+  contact_1_type: string;
+  contact_1_name: string;
   street_number: string;
   street_direction: string;
   street_name: string;
@@ -100,7 +109,7 @@ function buildOrClause(column: string, addresses: string[]): string {
 }
 
 const VIOLATION_FIELDS =
-  "id,violation_date,violation_status,violation_status_date,violation_description,violation_inspector_comments,violation_ordinance,violation_code,inspection_category,inspection_status,department_bureau,address";
+  "id,violation_date,violation_status,violation_status_date,violation_description,violation_location,violation_inspector_comments,violation_ordinance,violation_code,violation_last_modified_date,inspection_category,inspection_status,department_bureau,address";
 
 export async function fetchBuildingViolations(
   streetAddresses: string[]
@@ -120,7 +129,7 @@ export async function fetchBuildingViolations(
   return res.json();
 }
 
-const SR_FIELDS = "sr_number,sr_type,status,created_date,closed_date,owner_department,ward,zip_code,street_address";
+const SR_FIELDS = "sr_number,sr_type,status,origin,created_date,last_modified_date,closed_date,owner_department,duplicate,ward,zip_code,street_address";
 
 export async function fetchServiceRequests(
   streetAddresses: string[]
@@ -142,7 +151,7 @@ export async function fetchServiceRequests(
 
 // ─── BUILDING PERMITS ───
 
-const PERMIT_FIELDS = "id,permit_,permit_status,permit_type,issue_date,work_description,total_fee,street_number,street_direction,street_name";
+const PERMIT_FIELDS = "id,permit_,permit_status,permit_type,review_type,issue_date,work_description,reported_cost,total_fee,contact_1_type,contact_1_name,street_number,street_direction,street_name";
 
 export async function fetchBuildingPermits(
   streetAddresses: string[]
