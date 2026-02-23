@@ -1554,6 +1554,9 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               ))}
             </div>
           </div>
+          <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 20px" }}>
+            <NewsletterSignup />
+          </div>
           <div
             style={{
               padding: "56px 20px",
@@ -1681,7 +1684,6 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               Write a Review
             </button>
           </div>
-          <NewsletterSignup />
         </div>
       )}
 
