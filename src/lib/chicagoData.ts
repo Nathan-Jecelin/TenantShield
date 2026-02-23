@@ -82,10 +82,10 @@ export function parseStreetAddress(full: string): string {
   street = street.replace(/\./g, "");
   // Strip apartment/unit/suite suffixes
   street = street.replace(/\s+(APT|UNIT|STE|SUITE|#)\s*\S*$/i, "");
-  // Normalize directional words
+  // Normalize directional prefix only (the direction word right after the street number)
   street = street.replace(
-    /\b(NORTH|SOUTH|EAST|WEST|NORTHEAST|NORTHWEST|SOUTHEAST|SOUTHWEST)\b/g,
-    (m) => DIRECTIONS[m] || m
+    /^(\d+\s+)(NORTH|SOUTH|EAST|WEST|NORTHEAST|NORTHWEST|SOUTHEAST|SOUTHWEST)\b/,
+    (_, num, dir) => num + (DIRECTIONS[dir] || dir)
   );
   // Normalize all street type words (not just last word)
   for (const [full, abbr] of Object.entries(STREET_TYPES)) {

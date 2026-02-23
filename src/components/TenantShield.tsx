@@ -980,25 +980,19 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
       }
 
       // Google Places fallback: resolve building/company names to addresses
-      console.log("[Places] Check conditions:", { neighborhoodMatch, addressResultData: !!addressResultData, foundLen: found.length, startsWithDigit: /^\d/.test(t), t });
       if (!neighborhoodMatch && !addressResultData && found.length === 0 && !/^\d/.test(t)) {
         try {
-          console.log("[Places] Fetching places for:", q || query);
           const placesRes = await fetch("/api/places?q=" + encodeURIComponent(q || query));
           const placesData = await placesRes.json();
-          console.log("[Places] Response:", placesData);
           if (placesData.address) {
             const placeParsed = parseStreetAddress(placesData.address);
-            console.log("[Places] Parsed address:", placeParsed);
             if (placeParsed) {
               const placeVariants = generateAddressVariants(placeParsed);
-              console.log("[Places] Variants:", placeVariants);
               const [pViolations, pComplaints, pPermits] = await Promise.all([
                 fetchBuildingViolations(placeVariants),
                 fetchServiceRequests(placeVariants),
                 fetchBuildingPermits(placeVariants),
               ]);
-              console.log("[Places] Results:", { violations: pViolations.length, complaints: pComplaints.length, permits: pPermits.length });
               if (pViolations.length > 0 || pComplaints.length > 0 || pPermits.length > 0) {
                 addressResultData = {
                   address: placesData.address.split(",")[0].trim(),
@@ -1010,8 +1004,8 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               }
             }
           }
-        } catch (err) {
-          console.error("[Places] Error:", err);
+        } catch {
+          // Places API errors shouldn't block the search
         }
       }
 
