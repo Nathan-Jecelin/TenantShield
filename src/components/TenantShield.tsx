@@ -599,6 +599,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [blogPosts, setBlogPosts] = useState<{ id: string; slug: string; title: string; excerpt: string; content: string; published: boolean; created_at: string }[]>([]);
   const [blogEditing, setBlogEditing] = useState<string | null>(null); // post id or "new"
   const [blogForm, setBlogForm] = useState({ slug: "", title: "", excerpt: "", content: "", published: false });
+  const [adminUsers, setAdminUsers] = useState<{ users: { id: string; email: string; created_at: string; last_sign_in_at: string; provider: string }[]; reviewers: { email: string; reviewCount: number; lastReview: string; landlords: string[] }[] } | null>(null);
 
   const auth = useAuth();
   const isAdmin = auth.user?.email === ADMIN_EMAIL;
@@ -840,6 +841,19 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         .select("id, slug, title, excerpt, content, published, created_at")
         .order("created_at", { ascending: false });
       if (posts) setBlogPosts(posts);
+
+      // Load user emails for admin
+      const session = await sb.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (token) {
+        try {
+          const res = await fetch("/api/admin/users", { headers: { Authorization: `Bearer ${token}` } });
+          if (res.ok) {
+            const data = await res.json();
+            setAdminUsers(data);
+          }
+        } catch { /* ignore */ }
+      }
     })();
   }, [view, isAdmin]);
 
@@ -4225,6 +4239,80 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                   </>
                 )}
               </div>
+
+              {/* Reviewers with Emails */}
+              {adminUsers && (
+                <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Reviewers ({adminUsers.reviewers.length})
+                  </h3>
+                  {adminUsers.reviewers.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "#8b949e" }}>No reviewers yet</p>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "2px solid #e8ecf0", textAlign: "left" }}>
+                            <th style={{ padding: "8px 12px 8px 0", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Email</th>
+                            <th style={{ padding: "8px 12px", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Reviews</th>
+                            <th style={{ padding: "8px 12px", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Last Review</th>
+                            <th style={{ padding: "8px 12px", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Landlords</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminUsers.reviewers.map((r, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid #f0f3f6" }}>
+                              <td style={{ padding: "8px 12px 8px 0", color: "#1f6feb", fontWeight: 500 }}>{r.email}</td>
+                              <td style={{ padding: "8px 12px", color: "#1f2328", fontWeight: 600 }}>{r.reviewCount}</td>
+                              <td style={{ padding: "8px 12px", color: "#8b949e" }}>{formatDate(r.lastReview)}</td>
+                              <td style={{ padding: "8px 12px", color: "#57606a", fontSize: 12 }}>{r.landlords.join(", ")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* All Signed-Up Users */}
+              {adminUsers && (
+                <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    All Users ({adminUsers.users.length})
+                  </h3>
+                  {adminUsers.users.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "#8b949e" }}>No users yet</p>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "2px solid #e8ecf0", textAlign: "left" }}>
+                            <th style={{ padding: "8px 12px 8px 0", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Email</th>
+                            <th style={{ padding: "8px 12px", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Provider</th>
+                            <th style={{ padding: "8px 12px", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Signed Up</th>
+                            <th style={{ padding: "8px 12px", color: "#8b949e", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Last Sign In</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminUsers.users.map((u) => (
+                            <tr key={u.id} style={{ borderBottom: "1px solid #f0f3f6" }}>
+                              <td style={{ padding: "8px 12px 8px 0", color: "#1f2328", fontWeight: 500 }}>{u.email}</td>
+                              <td style={{ padding: "8px 12px" }}>
+                                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: u.provider === "google" ? "#fff1e5" : "#ddf4ff", color: u.provider === "google" ? "#bc4c00" : "#0969da" }}>
+                                  {u.provider}
+                                </span>
+                              </td>
+                              <td style={{ padding: "8px 12px", color: "#8b949e" }}>{formatDate(u.created_at)}</td>
+                              <td style={{ padding: "8px 12px", color: "#8b949e" }}>{u.last_sign_in_at ? formatDate(u.last_sign_in_at) : "Never"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Activity Feed */}
               <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px" }}>
