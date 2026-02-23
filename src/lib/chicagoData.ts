@@ -194,6 +194,41 @@ export async function fetchBuildingPermits(
   }
 }
 
+// ─── ADDRESS AUTOCOMPLETE ───
+
+export async function searchAddresses(partial: string): Promise<string[]> {
+  const parsed = parseStreetAddress(partial);
+  if (!parsed) return [];
+  const variants = generateAddressVariants(parsed);
+  const where = variants
+    .map((a) => `starts_with(upper(address), '${a.replace(/'/g, "''")}')`)
+    .join(" OR ");
+  const params = new URLSearchParams({
+    $select: "address",
+    $where: where,
+    $limit: "50",
+  });
+  try {
+    const res = await fetch(
+      `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`
+    );
+    if (!res.ok) return [];
+    const rows: { address: string }[] = await res.json();
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const r of rows) {
+      if (r.address && !seen.has(r.address)) {
+        seen.add(r.address);
+        unique.push(r.address);
+        if (unique.length >= 8) break;
+      }
+    }
+    return unique;
+  } catch {
+    return [];
+  }
+}
+
 // ─── NEIGHBORHOOD / COMMUNITY AREA SUPPORT ───
 
 // Chicago community area numbers mapped from common neighborhood names

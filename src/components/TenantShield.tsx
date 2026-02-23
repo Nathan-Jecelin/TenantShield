@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
-import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
+import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, searchAddresses, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
 import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
 import { trackEvent } from "@/lib/analytics";
@@ -556,6 +556,9 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     text: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
+  const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
@@ -1030,6 +1033,21 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     setSelected(null);
     setAddressResult(null);
     setNeighborhoodResult(null);
+  }
+
+  function handleAddressChange(value: string) {
+    setForm((f) => ({ ...f, address: value }));
+    if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current);
+    if (value.length >= 5) {
+      addressDebounceRef.current = setTimeout(async () => {
+        const suggestions = await searchAddresses(value);
+        setAddressSuggestions(suggestions);
+        setShowAddressSuggestions(suggestions.length > 0);
+      }, 300);
+    } else {
+      setAddressSuggestions([]);
+      setShowAddressSuggestions(false);
+    }
   }
 
   async function submitReview(e: React.FormEvent) {
@@ -3308,15 +3326,67 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 >
                   Rental Address
                 </label>
-                <input
-                  type="text"
-                  value={form.address}
-                  onChange={(e) =>
-                    setForm({ ...form, address: e.target.value })
-                  }
-                  placeholder="e.g. 1234 N Clark St, Chicago, IL"
-                  style={inp}
-                />
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="text"
+                    value={form.address}
+                    onChange={(e) => handleAddressChange(e.target.value)}
+                    onFocus={() => {
+                      if (addressSuggestions.length > 0) setShowAddressSuggestions(true);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setShowAddressSuggestions(false), 200);
+                    }}
+                    placeholder="e.g. 1234 N Clark St, Chicago, IL"
+                    style={inp}
+                    autoComplete="off"
+                  />
+                  {showAddressSuggestions && addressSuggestions.length > 0 && (
+                    <ul
+                      style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        margin: 0,
+                        padding: 0,
+                        listStyle: "none",
+                        background: "#fff",
+                        border: "1px solid #d0d7de",
+                        borderTop: "none",
+                        borderRadius: "0 0 6px 6px",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                        zIndex: 10,
+                        maxHeight: 200,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {addressSuggestions.map((addr) => (
+                        <li
+                          key={addr}
+                          onMouseDown={() => {
+                            setForm((f) => ({ ...f, address: addr }));
+                            setShowAddressSuggestions(false);
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            color: "#1f2328",
+                            cursor: "pointer",
+                          }}
+                          onMouseEnter={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = "#f6f8fa";
+                          }}
+                          onMouseLeave={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = "#fff";
+                          }}
+                        >
+                          {addr}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <label
