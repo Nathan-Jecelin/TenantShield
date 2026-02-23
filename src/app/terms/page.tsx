@@ -37,6 +37,9 @@ export default function Terms() {
       <p>For questions about these terms, email us at <a href="mailto:nathan@mytenantshield.com" style={{ color: "#1f6feb", textDecoration: "none" }}>nathan@mytenantshield.com</a>.</p>
 
       <div style={{ marginTop: 48, paddingTop: 24, borderTop: "1px solid #e8ecf0" }}>
+        <p style={{ fontSize: 13, color: "#57606a", marginBottom: 16, lineHeight: 1.6 }}>
+          Want to help other renters? <a href="/" style={{ color: "#1f6feb", textDecoration: "none", fontWeight: 600 }}>Leave a review</a> of your building or landlord.
+        </p>
         <a href="/" style={{ color: "#1f6feb", textDecoration: "none", fontWeight: 600 }}>← Back to TenantShield</a>
       </div>
     </div>

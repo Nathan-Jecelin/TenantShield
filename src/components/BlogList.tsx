@@ -217,6 +217,47 @@ export default function BlogList() {
 
       <NewsletterSignup />
 
+      <div
+        style={{
+          maxWidth: 680,
+          margin: "0 auto",
+          padding: "0 20px",
+          marginTop: 32,
+          textAlign: "center",
+        }}
+      >
+        <div
+          style={{
+            padding: "20px 24px",
+            background: "#f0f6ff",
+            borderRadius: 8,
+            border: "1px solid #d0e0ff",
+          }}
+        >
+          <p
+            style={{
+              fontSize: 14,
+              color: "#424a53",
+              margin: 0,
+              lineHeight: 1.6,
+            }}
+          >
+            Know something about your building or landlord?{" "}
+            <a
+              href="/"
+              style={{
+                color: "#1f6feb",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+            >
+              Leave a review
+            </a>{" "}
+            and help Chicago renters stay informed.
+          </p>
+        </div>
+      </div>
+
       <footer
         style={{
           textAlign: "center",

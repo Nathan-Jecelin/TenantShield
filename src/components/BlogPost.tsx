@@ -194,7 +194,38 @@ export default function BlogPost({ slug }: { slug: string }) {
             />
             <div
               style={{
-                marginTop: 36,
+                marginTop: 32,
+                padding: "20px 24px",
+                background: "#f0f6ff",
+                borderRadius: 8,
+                border: "1px solid #d0e0ff",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 14,
+                  color: "#424a53",
+                  margin: 0,
+                  lineHeight: 1.6,
+                }}
+              >
+                Had a rental experience in Chicago?{" "}
+                <a
+                  href="/"
+                  style={{
+                    color: "#1f6feb",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                  }}
+                >
+                  Leave a review
+                </a>{" "}
+                to help other renters make informed decisions.
+              </p>
+            </div>
+            <div
+              style={{
+                marginTop: 24,
                 paddingTop: 24,
                 borderTop: "1px solid #e8ecf0",
               }}
