@@ -574,6 +574,12 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     complaints: ServiceRequest[];
     permits?: BuildingPermit[];
   } | null>(null);
+  const [addressResults, setAddressResults] = useState<{
+    address: string;
+    violations: BuildingViolation[];
+    complaints: ServiceRequest[];
+    permits?: BuildingPermit[];
+  }[]>([]);
   const [showAllProfileViolations, setShowAllProfileViolations] = useState(false);
   const [showAllProfileComplaints, setShowAllProfileComplaints] = useState(false);
   const [showAllProfilePermits, setShowAllProfilePermits] = useState(false);
@@ -906,6 +912,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
       if (!t) return;
 
       setAddressResult(null);
+      setAddressResults([]);
       setNeighborhoodResult(null);
       let found: Landlord[] = [];
       let addressResultData: { address: string; violations: BuildingViolation[]; complaints: ServiceRequest[]; permits?: BuildingPermit[] } | null = null;
@@ -972,6 +979,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 permits,
               };
               setAddressResult(addressResultData);
+              setAddressResults([addressResultData]);
             }
           }
         } catch {
@@ -984,24 +992,39 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         try {
           const placesRes = await fetch("/api/places?q=" + encodeURIComponent(q || query));
           const placesData = await placesRes.json();
-          if (placesData.address) {
-            const placeParsed = parseStreetAddress(placesData.address);
-            if (placeParsed) {
-              const placeVariants = generateAddressVariants(placeParsed);
-              const [pViolations, pComplaints, pPermits] = await Promise.all([
-                fetchBuildingViolations(placeVariants),
-                fetchServiceRequests(placeVariants),
-                fetchBuildingPermits(placeVariants),
-              ]);
-              if (pViolations.length > 0 || pComplaints.length > 0 || pPermits.length > 0) {
-                addressResultData = {
-                  address: placesData.address.split(",")[0].trim(),
-                  violations: pViolations,
-                  complaints: pComplaints,
-                  permits: pPermits,
-                };
-                setAddressResult(addressResultData);
+          const placeAddresses: string[] = placesData.addresses ?? (placesData.address ? [placesData.address] : []);
+          if (placeAddresses.length > 0) {
+            // Parse all addresses and deduplicate by parsed street address
+            const seen = new Set<string>();
+            const uniqueAddresses: { raw: string; parsed: string; variants: string[] }[] = [];
+            for (const addr of placeAddresses) {
+              const parsed = parseStreetAddress(addr);
+              if (parsed && !seen.has(parsed)) {
+                seen.add(parsed);
+                uniqueAddresses.push({ raw: addr, parsed, variants: generateAddressVariants(parsed) });
               }
+            }
+
+            // Fetch Chicago data for all addresses in parallel
+            const allResults = await Promise.all(
+              uniqueAddresses.map(async ({ raw, variants }) => {
+                const [v, c, p] = await Promise.all([
+                  fetchBuildingViolations(variants),
+                  fetchServiceRequests(variants),
+                  fetchBuildingPermits(variants),
+                ]);
+                if (v.length > 0 || c.length > 0 || p.length > 0) {
+                  return { address: raw.split(",")[0].trim(), violations: v, complaints: c, permits: p };
+                }
+                return null;
+              })
+            );
+
+            const validResults = allResults.filter((r): r is NonNullable<typeof r> => r !== null);
+            if (validResults.length > 0) {
+              addressResultData = validResults[0];
+              setAddressResult(validResults[0]);
+              setAddressResults(validResults);
             }
           }
         } catch {
@@ -1840,13 +1863,13 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           <p
             style={{ fontSize: 13, color: "#8b949e", marginBottom: 16 }}
           >
-            {results.length + (addressResult ? 1 : 0)} result{results.length + (addressResult ? 1 : 0) !== 1 ? "s" : ""} for &ldquo;
+            {results.length + addressResults.length} result{results.length + addressResults.length !== 1 ? "s" : ""} for &ldquo;
             {query}&rdquo;
             {neighborhoodResult && (
               <span> · Showing {neighborhoodResult.neighborhoodName} neighborhood data</span>
             )}
           </p>
-          {results.length === 0 && !addressResult && !neighborhoodResult && (
+          {results.length === 0 && addressResults.length === 0 && !neighborhoodResult && (
             <div
               style={{
                 textAlign: "center",
@@ -2179,9 +2202,10 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             </div>
           )}
 
-          {addressResult && (
+          {addressResults.map((addrResult, addrIdx) => (
             <div
-              onClick={() => { setShowAllProfileViolations(false); setShowAllProfileComplaints(false); setShowAllProfilePermits(false); setComplaintFilter("all"); setView("address-profile"); }}
+              key={addrResult.address + addrIdx}
+              onClick={() => { setAddressResult(addrResult); setShowAllProfileViolations(false); setShowAllProfileComplaints(false); setShowAllProfilePermits(false); setComplaintFilter("all"); setView("address-profile"); }}
               style={{
                 border: "1px solid #e8ecf0",
                 borderRadius: 8,
@@ -2201,7 +2225,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
                   <h3 style={{ fontSize: 16, fontWeight: 600, margin: "0 0 4px", color: "#1f2328" }}>
-                    {addressResult.address}
+                    {addrResult.address}
                   </h3>
                   <div style={{ fontSize: 13, color: "#57606a" }}>
                     Address lookup via City of Chicago
@@ -2219,18 +2243,18 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 </div>
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 12, paddingTop: 12, borderTop: "1px solid #f0f3f6" }}>
-                {addressResult.violations.length > 0 ? (
+                {addrResult.violations.length > 0 ? (
                   <span style={{ fontSize: 12, color: "#cf222e" }}>
-                    ⚠ {addressResult.violations.length} building violation{addressResult.violations.length !== 1 ? "s" : ""}
+                    ⚠ {addrResult.violations.length} building violation{addrResult.violations.length !== 1 ? "s" : ""}
                   </span>
                 ) : (
                   <span style={{ fontSize: 12, color: "#1a7f37" }}>
                     ✓ No violations on record
                   </span>
                 )}
-                {addressResult.complaints.length > 0 && (
+                {addrResult.complaints.length > 0 && (
                   <span style={{ fontSize: 12, color: "#bc4c00" }}>
-                    {addressResult.complaints.length} complaint{addressResult.complaints.length !== 1 ? "s" : ""} filed
+                    {addrResult.complaints.length} complaint{addrResult.complaints.length !== 1 ? "s" : ""} filed
                   </span>
                 )}
               </div>
@@ -2256,10 +2280,10 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 </button>
               </div>
             </div>
-          )}
+          ))}
 
           {/* Post-search review prompt */}
-          {(results.length > 0 || addressResult || neighborhoodResult) && !hasReviewed && (
+          {(results.length > 0 || addressResults.length > 0 || neighborhoodResult) && !hasReviewed && (
             <div
               style={{
                 marginTop: 16,

@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
             radius: 25000,
           },
         },
-        maxResultCount: 1,
+        maxResultCount: 5,
       }),
     });
 
@@ -37,8 +37,9 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json();
-    const address = data.places?.[0]?.formattedAddress ?? null;
-    return NextResponse.json({ address });
+    const addresses: string[] = (data.places ?? []).map((p: { formattedAddress?: string }) => p.formattedAddress).filter(Boolean);
+    const address = addresses[0] ?? null;
+    return NextResponse.json({ address, addresses });
   } catch (err) {
     console.error('Google Places fetch error:', err);
     return NextResponse.json({ address: null });
