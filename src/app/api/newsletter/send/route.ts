@@ -150,6 +150,10 @@ export async function POST(req: NextRequest) {
     html += `
       <div style="text-align:center;padding-top:8px">
         <a href="${siteUrl}" style="display:inline-block;padding:12px 32px;background:#1f6feb;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Search an Address</a>
+        <div style="margin-top:16px;font-size:13px;color:#57606a;line-height:1.5">
+          Had a good (or bad) experience with your landlord?<br>
+          <a href="${siteUrl}" style="color:#1f6feb;text-decoration:none;font-weight:600">Leave a review</a> &mdash; it helps other Chicago renters.
+        </div>
       </div>
     </div>
 
