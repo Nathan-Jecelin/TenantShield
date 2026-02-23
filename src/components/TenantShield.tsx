@@ -979,8 +979,39 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         }
       }
 
+      // Google Places fallback: resolve building/company names to addresses
+      if (!neighborhoodMatch && !addressResultData && found.length === 0 && !/^\d/.test(t)) {
+        try {
+          const placesRes = await fetch("/api/places?q=" + encodeURIComponent(q || query));
+          const placesData = await placesRes.json();
+          if (placesData.address) {
+            const placeParsed = parseStreetAddress(placesData.address);
+            if (placeParsed) {
+              const placeVariants = generateAddressVariants(placeParsed);
+              const [pViolations, pComplaints, pPermits] = await Promise.all([
+                fetchBuildingViolations(placeVariants),
+                fetchServiceRequests(placeVariants),
+                fetchBuildingPermits(placeVariants),
+              ]);
+              if (pViolations.length > 0 || pComplaints.length > 0 || pPermits.length > 0) {
+                addressResultData = {
+                  address: placesData.address.split(",")[0].trim(),
+                  violations: pViolations,
+                  complaints: pComplaints,
+                  permits: pPermits,
+                };
+                setAddressResult(addressResultData);
+              }
+            }
+          }
+        } catch {
+          // Places API errors shouldn't block the search
+        }
+      }
+
       // Classify search type for admin tracking
       const searchType = neighborhoodMatch ? "neighborhood"
+        : !!addressResultData && !/^\d/.test(t) ? "places"
         : !!addressResultData ? "address"
         : found.length > 0 ? "landlord"
         : "unknown";
