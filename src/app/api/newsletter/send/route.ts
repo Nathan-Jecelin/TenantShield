@@ -82,62 +82,89 @@ export async function POST(req: NextRequest) {
   const siteUrl = 'https://mytenantshield.com';
 
   const buildEmail = (unsubscribeToken: string) => {
+    const postCount = newPosts?.length ?? 0;
+    const weekOf = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
     let html = `
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f6f8fa;font-family:system-ui,-apple-system,sans-serif">
-  <div style="max-width:600px;margin:0 auto;padding:32px 20px">
-    <div style="text-align:center;margin-bottom:32px">
-      <h1 style="font-size:22px;color:#1f2328;margin:0 0 4px">TenantShield Weekly</h1>
-      <p style="font-size:13px;color:#8b949e;margin:0">Your weekly Chicago renter update</p>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <div style="max-width:600px;margin:0 auto;padding:32px 16px">
+
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#1a56db,#1f6feb);border-radius:12px 12px 0 0;padding:32px 24px;text-align:center">
+      <div style="font-size:28px;margin-bottom:8px">&#x1f3e0;</div>
+      <h1 style="font-size:24px;color:#ffffff;margin:0 0 4px;font-weight:700;letter-spacing:-0.3px">TenantShield Weekly</h1>
+      <p style="font-size:13px;color:rgba(255,255,255,0.8);margin:0">Week of ${weekOf}</p>
     </div>
-    <div style="background:#fff;border-radius:8px;border:1px solid #e8ecf0;padding:24px;margin-bottom:16px">`;
+
+    <!-- Main content -->
+    <div style="background:#ffffff;border-radius:0 0 12px 12px;padding:28px 24px;border:1px solid #e2e8f0;border-top:none">`;
 
     // Blog posts section
-    if (newPosts && newPosts.length > 0) {
+    if (postCount > 0) {
       html += `
-      <h2 style="font-size:16px;color:#1f2328;margin:0 0 16px;padding-bottom:12px;border-bottom:1px solid #e8ecf0">New on the Blog</h2>`;
-      for (const post of newPosts) {
+      <div style="margin-bottom:24px">
+        <h2 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8b949e;margin:0 0 16px;font-weight:600">New on the Blog</h2>`;
+      for (let i = 0; i < newPosts!.length; i++) {
+        const post = newPosts![i];
         html += `
-      <div style="margin-bottom:16px">
-        <a href="${siteUrl}/blog/${post.slug}" style="font-size:15px;font-weight:600;color:#1f6feb;text-decoration:none">${post.title}</a>
-        <p style="font-size:13px;color:#57606a;margin:4px 0 0;line-height:1.5">${post.excerpt}</p>
-      </div>`;
+        <a href="${siteUrl}/blog/${post.slug}" style="display:block;text-decoration:none;padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e8ecf0;${i < newPosts!.length - 1 ? 'margin-bottom:10px' : ''}">
+          <div style="font-size:15px;font-weight:600;color:#1f2328;margin-bottom:6px">${post.title}</div>
+          <div style="font-size:13px;color:#57606a;line-height:1.5">${post.excerpt}</div>
+          <div style="font-size:12px;color:#1f6feb;font-weight:600;margin-top:8px">Read more &#x2192;</div>
+        </a>`;
       }
+      html += `
+      </div>`;
     }
 
     // Activity summary
     const hasActivity = (newReviewCount && newReviewCount > 0) || topSearches.length > 0;
     if (hasActivity) {
       html += `
-      <h2 style="font-size:16px;color:#1f2328;margin:24px 0 12px;padding-top:16px;border-top:1px solid #e8ecf0">This Week on TenantShield</h2>
-      <ul style="padding-left:20px;margin:0;color:#57606a;font-size:14px;line-height:1.8">`;
+      <div style="background:#f0f6ff;border-radius:8px;padding:16px 20px;margin-bottom:24px">
+        <h2 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#1a56db;margin:0 0 12px;font-weight:600">This Week&rsquo;s Activity</h2>`;
       if (newReviewCount && newReviewCount > 0) {
-        html += `<li><strong>${newReviewCount}</strong> new tenant review${newReviewCount === 1 ? '' : 's'} submitted</li>`;
+        html += `
+        <div style="font-size:14px;color:#1f2328;margin-bottom:6px">&#x1f4dd; <strong>${newReviewCount}</strong> new tenant review${newReviewCount === 1 ? '' : 's'} submitted</div>`;
       }
       if (topSearches.length > 0) {
-        html += `<li>Trending searches: ${topSearches.join(', ')}</li>`;
+        html += `
+        <div style="font-size:14px;color:#1f2328">&#x1f50d; Trending: ${topSearches.map(s => `<strong>${s}</strong>`).join(', ')}</div>`;
       }
-      html += `</ul>`;
+      html += `
+      </div>`;
     }
 
     // No content fallback
-    if ((!newPosts || newPosts.length === 0) && !hasActivity) {
+    if (postCount === 0 && !hasActivity) {
       html += `
-      <p style="font-size:14px;color:#57606a;line-height:1.6">It was a quiet week on TenantShield. Check back for new reviews, blog posts, and building updates!</p>`;
+      <div style="text-align:center;padding:20px 0">
+        <p style="font-size:14px;color:#57606a;line-height:1.6;margin:0">It was a quiet week on TenantShield. Check back for new reviews, blog posts, and building updates!</p>
+      </div>`;
     }
 
     // CTA
     html += `
-      <div style="text-align:center;margin-top:24px;padding-top:16px;border-top:1px solid #e8ecf0">
-        <a href="${siteUrl}" style="display:inline-block;padding:10px 28px;background:#1f6feb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px">Search an Address</a>
+      <div style="text-align:center;padding-top:8px">
+        <a href="${siteUrl}" style="display:inline-block;padding:12px 32px;background:#1f6feb;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Search an Address</a>
       </div>
     </div>
-    <div style="text-align:center;padding:16px 0;font-size:12px;color:#8b949e">
-      <a href="${siteUrl}/api/newsletter/unsubscribe?token=${unsubscribeToken}" style="color:#8b949e;text-decoration:underline">Unsubscribe</a>
-      &nbsp;·&nbsp; TenantShield · Protecting Chicago renters
+
+    <!-- Footer -->
+    <div style="text-align:center;padding:20px 0;font-size:12px;color:#8b949e;line-height:1.8">
+      <div>TenantShield &middot; Protecting Chicago renters</div>
+      <div style="margin-top:4px">
+        <a href="${siteUrl}/blog" style="color:#8b949e;text-decoration:none">Blog</a>
+        &nbsp;&middot;&nbsp;
+        <a href="${siteUrl}/privacy" style="color:#8b949e;text-decoration:none">Privacy</a>
+        &nbsp;&middot;&nbsp;
+        <a href="${siteUrl}/api/newsletter/unsubscribe?token=${unsubscribeToken}" style="color:#8b949e;text-decoration:underline">Unsubscribe</a>
+      </div>
     </div>
+
   </div>
 </body>
 </html>`;
