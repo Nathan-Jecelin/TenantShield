@@ -1346,12 +1346,17 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             fontWeight: 600,
           }}
         >
-          <span
+          <div
             onClick={goReview}
-            style={{ cursor: "pointer", textAlign: "center", lineHeight: 1.4 }}
+            style={{ cursor: "pointer", textAlign: "center" }}
           >
-            🎁 Leave a review and enter to win a $25 Amazon gift card! Winner drawn March 31st.
-          </span>
+            <div style={{ lineHeight: 1.4 }}>
+              🎁 Leave a review and enter to win a $25 Amazon gift card! Winner drawn March 31st.
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+              No purchase necessary. One entry per review. Winner chosen randomly. Must be 18+.
+            </div>
+          </div>
           <button
             onClick={() => setShowGiveawayBanner(false)}
             style={{
