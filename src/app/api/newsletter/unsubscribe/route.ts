@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   <div style="max-width:480px;text-align:center;margin-top:60px">
     <h1 style="font-size:24px;font-weight:700;margin-bottom:12px">${title}</h1>
     <p style="font-size:15px;color:#57606a;line-height:1.6">${message}</p>
-    <a href="https://tenantshield.org" style="display:inline-block;margin-top:24px;padding:10px 24px;background:#1f6feb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px">Back to TenantShield</a>
+    <a href="https://mytenantshield.com" style="display:inline-block;margin-top:24px;padding:10px 24px;background:#1f6feb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px">Back to TenantShield</a>
   </div>
 </body>
 </html>`,

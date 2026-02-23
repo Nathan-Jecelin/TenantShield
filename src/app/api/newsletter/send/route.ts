@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     .map(([query]) => query);
 
   // Build email HTML
-  const siteUrl = 'https://tenantshield.org';
+  const siteUrl = 'https://mytenantshield.com';
 
   const buildEmail = (unsubscribeToken: string) => {
     let html = `
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < subscribers.length; i += BATCH_SIZE) {
     const batch = subscribers.slice(i, i + BATCH_SIZE);
     const emails = batch.map((sub) => ({
-      from: 'TenantShield <newsletter@tenantshield.org>',
+      from: 'TenantShield <newsletter@mytenantshield.com>',
       to: sub.email,
       subject: newPosts && newPosts.length > 0
         ? `TenantShield Weekly: ${newPosts[0].title}`
