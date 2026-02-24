@@ -586,6 +586,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
   const [watchEmail, setWatchEmail] = useState("");
   const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string } | null>(null);
   const [watchMessage, setWatchMessage] = useState("");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
@@ -757,6 +758,20 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     if (view === "profile" && selected) data.landlord = selected.slug;
     trackEvent("page_view", data, auth.user?.id);
   }, [view, selected, auth.user?.id]);
+
+  // Fetch building claim info for address profile
+  useEffect(() => {
+    if (view !== "address-profile" || !addressResult) {
+      setClaimInfo(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/building-claim?address=${encodeURIComponent(addressResult.address)}`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setClaimInfo(d.claim ?? null); })
+      .catch(() => { if (!cancelled) setClaimInfo(null); });
+    return () => { cancelled = true; };
+  }, [view, addressResult]);
 
   // Track login events
   useEffect(() => {
@@ -3281,7 +3296,46 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             )}
           </div>
 
-          {/* Claim This Building CTA */}
+          {/* Building Claim Info / Claim CTA */}
+          {claimInfo && (
+            <div
+              style={{
+                border: `1px solid ${claimInfo.verification_status === "approved" ? "#a7f3d0" : "#fde68a"}`,
+                borderRadius: 8,
+                background: claimInfo.verification_status === "approved" ? "#ecfdf5" : "#fffbeb",
+                padding: "16px 28px",
+                marginBottom: 16,
+                display: "flex",
+                alignItems: "center",
+                gap: 16,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+                  Managed by {claimInfo.company_name || "Property Owner"}
+                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: "#57606a" }}>
+                    {claimInfo.claimant_role === "owner" ? "Owner" : claimInfo.claimant_role === "property_manager" ? "Property Manager" : "Management Company"}
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: "2px 8px",
+                      borderRadius: 10,
+                      background: claimInfo.verification_status === "approved" ? "#d1fae5" : "#fef3c7",
+                      color: claimInfo.verification_status === "approved" ? "#065f46" : "#92400e",
+                    }}
+                  >
+                    {claimInfo.verification_status === "approved" ? "Verified" : "Pending Verification"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           <div
             style={{
               border: "1px solid #e8ecf0",
