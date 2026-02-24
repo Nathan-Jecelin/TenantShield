@@ -584,6 +584,9 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [showAllProfileComplaints, setShowAllProfileComplaints] = useState(false);
   const [showAllProfilePermits, setShowAllProfilePermits] = useState(false);
   const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
+  const [watchEmail, setWatchEmail] = useState("");
+  const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [watchMessage, setWatchMessage] = useState("");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
   const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
@@ -620,6 +623,13 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const resultsCityData = useChicagoResultsCounts(
     view === "results" && results.length > 0 ? results : null
   );
+
+  // Reset address watch form when address changes
+  useEffect(() => {
+    setWatchEmail(auth.user?.email || "");
+    setWatchStatus("idle");
+    setWatchMessage("");
+  }, [addressResult?.address, auth.user?.email]);
 
   // Fetch user reviews when auth state changes
   useEffect(() => {
@@ -1061,6 +1071,33 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   function openProfile(ll: Landlord) {
     setSelected(ll);
     setView("profile");
+  }
+
+  async function handleWatchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setWatchStatus("loading");
+    try {
+      const res = await fetch("/api/address-watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: watchEmail,
+          address: addressResult?.address,
+          userId: auth.user?.id || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setWatchStatus("error");
+        setWatchMessage(data.error || "Something went wrong.");
+      } else {
+        setWatchStatus("success");
+        setWatchMessage(data.message);
+      }
+    } catch {
+      setWatchStatus("error");
+      setWatchMessage("Something went wrong. Please try again.");
+    }
   }
 
   function goReview() {
@@ -2717,6 +2754,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           : complaintFilter === "street" ? streetComplaints
           : addressResult.complaints;
         const permits = addressResult.permits || [];
+        const isCleanRecord = addressResult.violations.length === 0 && addressResult.complaints.length === 0;
         const filterBtnStyle = (active: boolean): React.CSSProperties => ({
           padding: "5px 12px",
           background: active ? "#1f6feb" : "#f6f8fa",
@@ -2789,254 +2827,344 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             </div>
           </div>
 
-          {/* 311 Complaints with Filtering */}
-          <div
-            style={{
-              border: "1px solid #e8ecf0",
-              borderRadius: 8,
-              background: "#fff",
-              padding: "20px 28px",
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-              <h3 style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "#1f2328",
-                margin: 0,
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-              }}>
-                311 Complaints ({filteredComplaints.length})
-              </h3>
-              {addressResult.complaints.length > 0 && (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { setComplaintFilter("all"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "all")}>
-                    All ({addressResult.complaints.length})
-                  </button>
-                  <button onClick={() => { setComplaintFilter("building"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "building")}>
-                    Building ({buildingComplaints.length})
-                  </button>
-                  <button onClick={() => { setComplaintFilter("street"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "street")}>
-                    Street ({streetComplaints.length})
-                  </button>
-                </div>
-              )}
-            </div>
-            {complaintFilter !== "all" && (
-              <div style={{ fontSize: 12, color: "#57606a", marginBottom: 12, padding: "8px 12px", background: "#f6f8fa", borderRadius: 6 }}>
-                {complaintFilter === "building"
-                  ? "Showing building-related complaints (noise, no heat, water issues, building code, etc.)"
-                  : "Showing street-level complaints (potholes, graffiti, street lights, abandoned vehicles, etc.)"}
+          {isCleanRecord ? (
+            /* ─── CLEAN RECORD CARD ─── */
+            <div
+              style={{
+                border: "2px solid #a7f3d0",
+                borderRadius: 10,
+                background: "linear-gradient(to bottom, #ecfdf5, #fff)",
+                padding: "36px 28px",
+                marginBottom: 16,
+                textAlign: "center",
+              }}
+            >
+              {/* Green shield + checkmark */}
+              <div style={{ marginBottom: 16 }}>
+                <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M28 4L8 14v14c0 12.4 8.53 24.01 20 26.8C39.47 52.01 48 40.4 48 28V14L28 4z" fill="#d1fae5" stroke="#1a7f37" strokeWidth="2"/>
+                  <path d="M20 28l6 6 10-10" stroke="#1a7f37" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
-            )}
-            {filteredComplaints.length === 0 ? (
-              <p style={{ fontSize: 14, color: "#57606a" }}>
-                {addressResult.complaints.length === 0
-                  ? "No 311 complaints on record for this address."
-                  : `No ${complaintFilter === "building" ? "building-related" : "street-level"} complaints found.`}
+              <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1a7f37", margin: "0 0 8px" }}>
+                Clean Record
+              </h3>
+              <p style={{ fontSize: 15, color: "#1f2328", margin: "0 0 8px", fontWeight: 600 }}>
+                No building violations or 311 complaints on file
               </p>
-            ) : (
-              <>
-                {(showAllProfileComplaints ? filteredComplaints : filteredComplaints.slice(0, 10)).map((c, i, arr) => {
-                  const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
-                  const isBldg = isBuildingRelated(c.sr_type);
-                  return (
-                    <div
-                      key={c.sr_number || i}
-                      style={{
-                        borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
-                        padding: "16px 0",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{
-                            display: "inline-block",
-                            width: 8,
-                            height: 8,
-                            borderRadius: "50%",
-                            background: isClosed ? "#1a7f37" : "#bc4c00",
-                            flexShrink: 0,
-                          }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
-                            {c.sr_type || "Service Request"}
-                          </span>
-                          {complaintFilter === "all" && (
-                            <span style={{
-                              fontSize: 10,
-                              fontWeight: 600,
-                              padding: "1px 6px",
-                              borderRadius: 3,
-                              background: isBldg ? "#ddf4ff" : "#fff8c5",
-                              color: isBldg ? "#0969da" : "#9a6700",
-                            }}>
-                              {isBldg ? "Building" : "Street"}
-                            </span>
-                          )}
-                        </div>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: isClosed ? "#dafbe1" : "#fff1e5",
-                          color: isClosed ? "#1a7f37" : "#bc4c00",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}>
-                          {isClosed ? "Resolved" : "Open"}
-                        </span>
-                      </div>
-                      {c.owner_department && (
-                        <div style={{ fontSize: 12, color: "#424a53", paddingLeft: 16, marginBottom: 4 }}>
-                          Handled by: {c.owner_department}
-                        </div>
-                      )}
-                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        <span>Filed {c.created_date ? formatDate(c.created_date) : "date unknown"}</span>
-                        {isClosed && c.closed_date && <span> · Closed {formatDate(c.closed_date)}</span>}
-                        {c.sr_number && <span> · #{c.sr_number}</span>}
-                        {c.ward && <span> · Ward {c.ward}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-                {filteredComplaints.length > 10 && (
-                  <button
-                    onClick={() => setShowAllProfileComplaints((p) => !p)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      padding: "10px 0",
-                      background: "#f6f8fa",
-                      border: "1px solid #e8ecf0",
-                      borderRadius: 6,
-                      color: "#1f6feb",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      marginTop: 8,
-                    }}
-                  >
-                    {showAllProfileComplaints ? "Show less" : `Show all ${filteredComplaints.length}`}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+              <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 24px", lineHeight: 1.6, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
+                Based on City of Chicago open data, this address has no recorded building code violations
+                or 311 service complaints. Records are updated regularly but may not reflect very recent activity.
+              </p>
 
-          {/* Building Violations */}
-          <div
-            style={{
-              border: "1px solid #e8ecf0",
-              borderRadius: 8,
-              background: "#fff",
-              padding: "20px 28px",
-              marginBottom: 16,
-            }}
-          >
-            <h3 style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#1f2328",
-              margin: "0 0 16px",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-            }}>
-              Building Violations ({addressResult.violations.length})
-            </h3>
-            {addressResult.violations.length === 0 ? (
-              <p style={{ fontSize: 14, color: "#57606a" }}>No building violations on record for this address.</p>
-            ) : (
-              <>
-                {(showAllProfileViolations ? addressResult.violations : addressResult.violations.slice(0, 10)).map((v, i, arr) => {
-                  const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
-                  return (
-                    <div
-                      key={v.id || i}
+              {/* Address watch email form */}
+              <div style={{
+                borderTop: "1px solid #d1fae5",
+                paddingTop: 20,
+                maxWidth: 420,
+                margin: "0 auto",
+              }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", margin: "0 0 12px" }}>
+                  Get alerted if this changes
+                </p>
+                {watchStatus === "success" ? (
+                  <p style={{ fontSize: 13, color: "#1a7f37", fontWeight: 600 }}>{watchMessage}</p>
+                ) : (
+                  <form onSubmit={handleWatchSubmit} style={{ display: "flex", gap: 8 }}>
+                    <input
+                      type="email"
+                      placeholder="you@email.com"
+                      value={watchEmail}
+                      onChange={(e) => setWatchEmail(e.target.value)}
+                      required
                       style={{
-                        borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
-                        padding: "16px 0",
+                        flex: 1,
+                        padding: "10px 14px",
+                        border: "1px solid #d0d7de",
+                        borderRadius: 6,
+                        fontSize: 14,
+                        fontFamily: "inherit",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={watchStatus === "loading"}
+                      style={{
+                        padding: "10px 20px",
+                        background: "#1a7f37",
+                        border: "none",
+                        borderRadius: 6,
+                        color: "#fff",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: watchStatus === "loading" ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                        opacity: watchStatus === "loading" ? 0.7 : 1,
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{
-                            display: "inline-block",
-                            width: 8,
-                            height: 8,
-                            borderRadius: "50%",
-                            background: isOpen ? "#cf222e" : "#1a7f37",
-                            flexShrink: 0,
-                          }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
-                            {v.inspection_category || "Building Violation"}
-                          </span>
-                          {v.department_bureau && (
-                            <span style={{ fontSize: 11, color: "#8b949e" }}>· {v.department_bureau}</span>
-                          )}
-                        </div>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: isOpen ? "#ffebe9" : "#dafbe1",
-                          color: isOpen ? "#cf222e" : "#1a7f37",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}>
-                          {isOpen ? "Open" : "Resolved"}
-                        </span>
-                      </div>
-                      <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
-                        {v.violation_description || "No description available"}
-                      </p>
-                      {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
-                        <p style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16, fontStyle: "italic" }}>
-                          Inspector notes: {v.violation_inspector_comments}
-                        </p>
-                      )}
-                      {v.violation_ordinance && (
-                        <p style={{ fontSize: 11, color: "#8b949e", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16 }}>
-                          {v.violation_ordinance}
-                        </p>
-                      )}
-                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        <span>{v.violation_date ? formatDate(v.violation_date) : "Date unknown"}</span>
-                        {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
-                        {v.violation_code && <span> · Code {v.violation_code}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-                {addressResult.violations.length > 10 && (
-                  <button
-                    onClick={() => setShowAllProfileViolations((p) => !p)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      padding: "10px 0",
-                      background: "#f6f8fa",
-                      border: "1px solid #e8ecf0",
-                      borderRadius: 6,
-                      color: "#1f6feb",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      marginTop: 8,
-                    }}
-                  >
-                    {showAllProfileViolations ? "Show less" : `Show all ${addressResult.violations.length}`}
-                  </button>
+                      {watchStatus === "loading" ? "Saving..." : "Watch"}
+                    </button>
+                  </form>
                 )}
-              </>
-            )}
-          </div>
+                {watchStatus === "error" && (
+                  <p style={{ fontSize: 12, color: "#cf222e", marginTop: 8 }}>{watchMessage}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 311 Complaints with Filtering */}
+              <div
+                style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                  <h3 style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#1f2328",
+                    margin: 0,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                  }}>
+                    311 Complaints ({filteredComplaints.length})
+                  </h3>
+                  {addressResult.complaints.length > 0 && (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => { setComplaintFilter("all"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "all")}>
+                        All ({addressResult.complaints.length})
+                      </button>
+                      <button onClick={() => { setComplaintFilter("building"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "building")}>
+                        Building ({buildingComplaints.length})
+                      </button>
+                      <button onClick={() => { setComplaintFilter("street"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "street")}>
+                        Street ({streetComplaints.length})
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {complaintFilter !== "all" && (
+                  <div style={{ fontSize: 12, color: "#57606a", marginBottom: 12, padding: "8px 12px", background: "#f6f8fa", borderRadius: 6 }}>
+                    {complaintFilter === "building"
+                      ? "Showing building-related complaints (noise, no heat, water issues, building code, etc.)"
+                      : "Showing street-level complaints (potholes, graffiti, street lights, abandoned vehicles, etc.)"}
+                  </div>
+                )}
+                {filteredComplaints.length === 0 ? (
+                  <p style={{ fontSize: 14, color: "#57606a" }}>
+                    {addressResult.complaints.length === 0
+                      ? "No 311 complaints on record for this address."
+                      : `No ${complaintFilter === "building" ? "building-related" : "street-level"} complaints found.`}
+                  </p>
+                ) : (
+                  <>
+                    {(showAllProfileComplaints ? filteredComplaints : filteredComplaints.slice(0, 10)).map((c, i, arr) => {
+                      const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
+                      const isBldg = isBuildingRelated(c.sr_type);
+                      return (
+                        <div
+                          key={c.sr_number || i}
+                          style={{
+                            borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                            padding: "16px 0",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{
+                                display: "inline-block",
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
+                                background: isClosed ? "#1a7f37" : "#bc4c00",
+                                flexShrink: 0,
+                              }} />
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                                {c.sr_type || "Service Request"}
+                              </span>
+                              {complaintFilter === "all" && (
+                                <span style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  padding: "1px 6px",
+                                  borderRadius: 3,
+                                  background: isBldg ? "#ddf4ff" : "#fff8c5",
+                                  color: isBldg ? "#0969da" : "#9a6700",
+                                }}>
+                                  {isBldg ? "Building" : "Street"}
+                                </span>
+                              )}
+                            </div>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              background: isClosed ? "#dafbe1" : "#fff1e5",
+                              color: isClosed ? "#1a7f37" : "#bc4c00",
+                              whiteSpace: "nowrap",
+                              flexShrink: 0,
+                            }}>
+                              {isClosed ? "Resolved" : "Open"}
+                            </span>
+                          </div>
+                          {c.owner_department && (
+                            <div style={{ fontSize: 12, color: "#424a53", paddingLeft: 16, marginBottom: 4 }}>
+                              Handled by: {c.owner_department}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            <span>Filed {c.created_date ? formatDate(c.created_date) : "date unknown"}</span>
+                            {isClosed && c.closed_date && <span> · Closed {formatDate(c.closed_date)}</span>}
+                            {c.sr_number && <span> · #{c.sr_number}</span>}
+                            {c.ward && <span> · Ward {c.ward}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {filteredComplaints.length > 10 && (
+                      <button
+                        onClick={() => setShowAllProfileComplaints((p) => !p)}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          padding: "10px 0",
+                          background: "#f6f8fa",
+                          border: "1px solid #e8ecf0",
+                          borderRadius: 6,
+                          color: "#1f6feb",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          marginTop: 8,
+                        }}
+                      >
+                        {showAllProfileComplaints ? "Show less" : `Show all ${filteredComplaints.length}`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Building Violations */}
+              <div
+                style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}
+              >
+                <h3 style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#1f2328",
+                  margin: "0 0 16px",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}>
+                  Building Violations ({addressResult.violations.length})
+                </h3>
+                {addressResult.violations.length === 0 ? (
+                  <p style={{ fontSize: 14, color: "#57606a" }}>No building violations on record for this address.</p>
+                ) : (
+                  <>
+                    {(showAllProfileViolations ? addressResult.violations : addressResult.violations.slice(0, 10)).map((v, i, arr) => {
+                      const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
+                      return (
+                        <div
+                          key={v.id || i}
+                          style={{
+                            borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                            padding: "16px 0",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{
+                                display: "inline-block",
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
+                                background: isOpen ? "#cf222e" : "#1a7f37",
+                                flexShrink: 0,
+                              }} />
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                                {v.inspection_category || "Building Violation"}
+                              </span>
+                              {v.department_bureau && (
+                                <span style={{ fontSize: 11, color: "#8b949e" }}>· {v.department_bureau}</span>
+                              )}
+                            </div>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              background: isOpen ? "#ffebe9" : "#dafbe1",
+                              color: isOpen ? "#cf222e" : "#1a7f37",
+                              whiteSpace: "nowrap",
+                              flexShrink: 0,
+                            }}>
+                              {isOpen ? "Open" : "Resolved"}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
+                            {v.violation_description || "No description available"}
+                          </p>
+                          {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
+                            <p style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16, fontStyle: "italic" }}>
+                              Inspector notes: {v.violation_inspector_comments}
+                            </p>
+                          )}
+                          {v.violation_ordinance && (
+                            <p style={{ fontSize: 11, color: "#8b949e", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16 }}>
+                              {v.violation_ordinance}
+                            </p>
+                          )}
+                          <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            <span>{v.violation_date ? formatDate(v.violation_date) : "Date unknown"}</span>
+                            {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
+                            {v.violation_code && <span> · Code {v.violation_code}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {addressResult.violations.length > 10 && (
+                      <button
+                        onClick={() => setShowAllProfileViolations((p) => !p)}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          padding: "10px 0",
+                          background: "#f6f8fa",
+                          border: "1px solid #e8ecf0",
+                          borderRadius: 6,
+                          color: "#1f6feb",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          marginTop: 8,
+                        }}
+                      >
+                        {showAllProfileViolations ? "Show less" : `Show all ${addressResult.violations.length}`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Building Permits */}
           <div
@@ -3140,6 +3268,66 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 )}
               </>
             )}
+          </div>
+
+          {/* Claim This Building CTA */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              gap: 20,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ flexShrink: 0 }}>
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="8" y="16" width="24" height="20" rx="2" fill="#ddf4ff" stroke="#0969da" strokeWidth="1.5"/>
+                <path d="M14 16V10a6 6 0 0 1 12 0v6" stroke="#0969da" strokeWidth="1.5" fill="none"/>
+                <rect x="12" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
+                <rect x="18" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
+                <rect x="24" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
+                <rect x="12" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
+                <rect x="18" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
+                <rect x="24" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+                Own or manage this building?
+              </p>
+              <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
+                Claim this property to respond to reviews and update building information.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (!auth.user && isSupabaseConfigured()) {
+                  setReturnView("address-profile");
+                  setView("login");
+                  return;
+                }
+                window.location.href = `mailto:support@tenantshield.com?subject=${encodeURIComponent("Claim Building: " + addressResult.address)}&body=${encodeURIComponent("I would like to claim ownership/management of the building at " + addressResult.address + ".\n\nPlease verify my identity and grant me access to manage this property listing.")}`;
+              }}
+              style={{
+                padding: "10px 20px",
+                background: "#fff",
+                border: "1px solid #d0d7de",
+                borderRadius: 6,
+                color: "#1f2328",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Claim This Building
+            </button>
           </div>
 
           {/* Review CTA */}
