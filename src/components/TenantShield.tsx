@@ -1345,6 +1345,17 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           >
             Blog
           </a>
+          <a
+            href="/landlord/dashboard"
+            style={{
+              fontSize: 13,
+              color: "#57606a",
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+          >
+            For Landlords
+          </a>
           {hasReviewed && (
             <span style={{ fontSize: 12, color: "#1a7f37", fontWeight: 600 }}>
               ✓ Full Access
