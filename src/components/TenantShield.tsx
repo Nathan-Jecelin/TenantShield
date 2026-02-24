@@ -4367,9 +4367,27 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
             Admin Dashboard
           </h1>
-          <p style={{ fontSize: 14, color: "#8b949e", margin: "0 0 24px" }}>
+          <p style={{ fontSize: 14, color: "#8b949e", margin: "0 0 16px" }}>
             Site analytics and activity overview
           </p>
+
+          <a
+            href="/admin/claims"
+            style={{
+              display: "inline-block",
+              padding: "8px 16px",
+              background: "#f0e6ff",
+              border: "1px solid #d4b8ff",
+              borderRadius: 6,
+              color: "#6e40c9",
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+              marginBottom: 24,
+            }}
+          >
+            Review Building Claims →
+          </a>
 
           {adminLoading || !adminData ? (
             <div style={{ textAlign: "center", padding: "48px 0" }}>
