@@ -659,16 +659,36 @@ export default function LandlordDashboard() {
         )}
 
         {/* Alerts section */}
-        <h2
+        <div
           style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: "#1f2328",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
             margin: "32px 0 12px",
           }}
         >
-          Recent Alerts
-        </h2>
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: "#1f2328",
+              margin: 0,
+            }}
+          >
+            Recent Alerts
+          </h2>
+          <a
+            href="/landlord/dashboard/alerts"
+            style={{
+              fontSize: 13,
+              color: "#1f6feb",
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+          >
+            View All Alerts &rarr;
+          </a>
+        </div>
         {alerts.length === 0 ? (
           <div
             style={{

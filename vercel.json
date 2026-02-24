@@ -7,6 +7,10 @@
     {
       "path": "/api/address-watch/check",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/landlord-alerts/check",
+      "schedule": "0 11 * * *"
     }
   ]
 }
