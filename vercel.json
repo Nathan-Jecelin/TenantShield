@@ -3,6 +3,10 @@
     {
       "path": "/api/newsletter/send",
       "schedule": "0 14 * * 1"
+    },
+    {
+      "path": "/api/address-watch/check",
+      "schedule": "0 10 * * *"
     }
   ]
 }

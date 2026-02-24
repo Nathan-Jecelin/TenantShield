@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import {
+  fetchBuildingViolations,
+  fetchServiceRequests,
+  parseStreetAddress,
+  generateAddressVariants,
+} from '@/lib/chicagoData';
 
 export async function POST(req: NextRequest) {
   const supabase = getSupabaseServer();
@@ -56,13 +62,36 @@ export async function POST(req: NextRequest) {
   }
 
   // New watch
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .from('address_watch')
-    .insert({ email, address, user_id: userId });
+    .insert({ email, address, user_id: userId })
+    .select('id')
+    .single();
 
   if (error) {
     console.error('Address watch insert error:', error);
     return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 });
+  }
+
+  // Store baseline counts so we only alert on *new* records
+  try {
+    const parsed = parseStreetAddress(address);
+    const variants = generateAddressVariants(parsed);
+    const [violations, complaints] = await Promise.all([
+      fetchBuildingViolations(variants),
+      fetchServiceRequests(variants),
+    ]);
+    await supabase
+      .from('address_watch')
+      .update({
+        last_violation_count: violations.length,
+        last_complaint_count: complaints.length,
+        last_checked_at: new Date().toISOString(),
+      })
+      .eq('id', inserted.id);
+  } catch (err) {
+    console.error('Failed to store baseline counts:', err);
+    // Non-fatal — the watch is still created, counts default to 0
   }
 
   return NextResponse.json({ message: "You'll be notified if new records appear for this address." });
