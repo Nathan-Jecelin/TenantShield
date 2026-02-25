@@ -169,15 +169,15 @@ function buildAlertEmail(
   if (newViolations > 0) {
     detailRows += `
         <tr>
-          <td style="padding:8px 12px;font-size:14px;color:#1f2328;border-bottom:1px solid #e8ecf0">Building Violations</td>
-          <td style="padding:8px 12px;font-size:14px;font-weight:600;color:#cf222e;text-align:right;border-bottom:1px solid #e8ecf0">+${newViolations} new</td>
+          <td style="padding:10px 0;font-size:14px;color:#1f2328;border-bottom:1px solid #f0f0f0">Building Violations</td>
+          <td style="padding:10px 0;font-size:14px;font-weight:600;color:#1f2328;text-align:right;border-bottom:1px solid #f0f0f0">+${newViolations} new</td>
         </tr>`;
   }
   if (newComplaints > 0) {
     detailRows += `
         <tr>
-          <td style="padding:8px 12px;font-size:14px;color:#1f2328">311 Complaints</td>
-          <td style="padding:8px 12px;font-size:14px;font-weight:600;color:#cf222e;text-align:right">+${newComplaints} new</td>
+          <td style="padding:10px 0;font-size:14px;color:#1f2328">311 Complaints</td>
+          <td style="padding:10px 0;font-size:14px;font-weight:600;color:#1f2328;text-align:right">+${newComplaints} new</td>
         </tr>`;
   }
 
@@ -185,25 +185,24 @@ function buildAlertEmail(
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f0f4f8;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<body style="margin:0;padding:0;background:#f6f8fa;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
   <div style="max-width:600px;margin:0 auto;padding:32px 16px">
 
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#cf222e,#da3633);border-radius:12px 12px 0 0;padding:32px 24px;text-align:center">
-      <div style="font-size:28px;margin-bottom:8px">&#x1f6a8;</div>
-      <h1 style="font-size:22px;color:#ffffff;margin:0 0 4px;font-weight:700;letter-spacing:-0.3px">New Records Found</h1>
-      <p style="font-size:13px;color:rgba(255,255,255,0.85);margin:0">${changeSummary}</p>
+    <div style="background:linear-gradient(135deg,#1a6deb,#0550ae);border-radius:12px 12px 0 0;padding:28px 24px;text-align:center">
+      <h1 style="font-size:20px;color:#ffffff;margin:0 0 6px;font-weight:700;letter-spacing:-0.3px">New Activity on Your Building</h1>
+      <p style="font-size:13px;color:rgba(255,255,255,0.75);margin:0">${changeSummary}</p>
     </div>
 
     <!-- Main content -->
     <div style="background:#ffffff;border-radius:0 0 12px 12px;padding:28px 24px;border:1px solid #e2e8f0;border-top:none">
 
-      <div style="background:#f8fafc;border-radius:8px;padding:16px;margin-bottom:20px;border:1px solid #e8ecf0">
+      <div style="background:#f6f8fa;border-radius:8px;padding:16px;margin-bottom:24px;border:1px solid #e8ecf0">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8b949e;margin-bottom:6px;font-weight:600">Building</div>
         <div style="font-size:16px;font-weight:600;color:#1f2328">${address}</div>
       </div>
 
-      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <table style="width:100%;border-collapse:collapse;margin-bottom:28px">
         ${detailRows}
       </table>
 
