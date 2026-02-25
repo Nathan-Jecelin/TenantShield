@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   let companyName: string | null = null;
   const { data: profile } = await supabase
     .from('landlord_profiles')
-    .select('company_name')
+    .select('company_name, verified')
     .eq('id', data.landlord_id)
     .single();
 
@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
       claimant_role: data.claimant_role,
       verification_status: data.verification_status,
       claimed_at: data.claimed_at,
+      verified: profile?.verified ?? false,
     },
   });
 }

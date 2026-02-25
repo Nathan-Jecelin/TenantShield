@@ -586,7 +586,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
   const [watchEmail, setWatchEmail] = useState("");
   const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string } | null>(null);
+  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean } | null>(null);
   const [watchMessage, setWatchMessage] = useState("");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
@@ -3312,7 +3312,13 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               }}
             >
               <div style={{ flex: 1, minWidth: 200 }}>
-                <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+                <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
+                  {claimInfo.verification_status === "approved" && (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#1a7f37" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    </svg>
+                  )}
                   Managed by {claimInfo.company_name || "Property Owner"}
                 </p>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

@@ -379,7 +379,7 @@ export default function LandlordDashboard() {
               >
                 <div>
                   <a
-                    href={`/address/${addressToSlug(b.address)}`}
+                    href={`/landlord/dashboard/building/${b.id}`}
                     style={{
                       fontSize: 14,
                       fontWeight: 600,
@@ -394,6 +394,17 @@ export default function LandlordDashboard() {
                     {b.units ? ` · ${b.units} units` : ""}
                     {" · "}
                     {formatDate(b.claimed_at)}
+                    {" · "}
+                    <a
+                      href={`/address/${addressToSlug(b.address)}`}
+                      style={{
+                        color: "#8b949e",
+                        textDecoration: "underline",
+                        fontSize: 12,
+                      }}
+                    >
+                      View public page
+                    </a>
                   </div>
                 </div>
                 <StatusBadge status={b.verification_status} />
