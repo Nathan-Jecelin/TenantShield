@@ -76,10 +76,26 @@ const DIRECTIONS: Record<string, string> = {
   NORTHEAST: "NE", NORTHWEST: "NW", SOUTHEAST: "SE", SOUTHWEST: "SW",
 };
 
+// Known Chicago city/state suffixes to strip when no comma is present
+const CITY_STATE_PATTERN =
+  /\s+(?:CHICAGO|CHI)\s*,?\s*(?:IL|ILLINOIS)?\s*(?:\d{5}(?:-\d{4})?)?\s*$/;
+
+const ABBR_TO_FULL: Record<string, string> = {};
+for (const [full, abbr] of Object.entries(STREET_TYPES)) {
+  ABBR_TO_FULL[abbr] = full;
+}
+
+const DIR_ABBR_TO_FULL: Record<string, string> = {};
+for (const [full, abbr] of Object.entries(DIRECTIONS)) {
+  DIR_ABBR_TO_FULL[abbr] = full;
+}
+
 export function parseStreetAddress(full: string): string {
   let street = full.split(",")[0].trim().toUpperCase();
   // Remove periods (e.g. "St." → "ST")
   street = street.replace(/\./g, "");
+  // Strip city/state/zip when entered without commas
+  street = street.replace(CITY_STATE_PATTERN, "");
   // Strip apartment/unit/suite suffixes
   street = street.replace(/\s+(APT|UNIT|STE|SUITE|#)\s*\S*$/i, "");
   // Normalize directional prefix only (the direction word right after the street number)
@@ -95,11 +111,40 @@ export function parseStreetAddress(full: string): string {
 }
 
 export function generateAddressVariants(parsed: string): string[] {
-  const variants = [parsed];
-  // Try without directional prefix (e.g. "1550 LAKE SHORE DR")
-  const withoutDir = parsed.replace(/^(\d+)\s+[NSEW]\s+/, "$1 ");
-  if (withoutDir !== parsed) variants.push(withoutDir);
-  return variants;
+  const seen = new Set<string>();
+  const add = (v: string) => { if (v && !seen.has(v)) seen.add(v); };
+
+  // 1. Abbreviated form (output of parseStreetAddress): "1550 N LAKE SHORE DR"
+  add(parsed);
+
+  // 2. Without directional prefix: "1550 LAKE SHORE DR"
+  const withoutDir = parsed.replace(/^(\d+)\s+[NSEW]{1,2}\s+/, "$1 ");
+  if (withoutDir !== parsed) add(withoutDir);
+
+  // 3. With full directional: "1550 NORTH LAKE SHORE DR"
+  const expandedDir = parsed.replace(
+    /^(\d+\s+)([NSEW]{1,2})\s+/,
+    (_, num, abbr) => num + (DIR_ABBR_TO_FULL[abbr] || abbr) + " "
+  );
+  if (expandedDir !== parsed) add(expandedDir);
+
+  // 4. With full street type: "1550 N LAKE SHORE DRIVE"
+  let expandedType = parsed;
+  for (const [abbr, full] of Object.entries(ABBR_TO_FULL)) {
+    expandedType = expandedType.replace(new RegExp(`\\b${abbr}\\b`, "g"), full);
+  }
+  if (expandedType !== parsed) add(expandedType);
+
+  // 5. Full direction + full street type: "1550 NORTH LAKE SHORE DRIVE"
+  let fullyExpanded = expandedDir;
+  for (const [abbr, full] of Object.entries(ABBR_TO_FULL)) {
+    fullyExpanded = fullyExpanded.replace(new RegExp(`\\b${abbr}\\b`, "g"), full);
+  }
+  if (fullyExpanded !== parsed && fullyExpanded !== expandedDir && fullyExpanded !== expandedType) {
+    add(fullyExpanded);
+  }
+
+  return Array.from(seen);
 }
 
 function buildOrClause(column: string, addresses: string[]): string {
