@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
 
-const ADMIN_EMAIL = 'njecelin17@gmail.com';
+const ADMIN_EMAILS = new Set(['njecelin17@gmail.com', 'nathan@mytenantshield.com']);
 
 export async function GET(req: NextRequest) {
   const supabase = getSupabaseServer();
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const token = authHeader.replace('Bearer ', '');
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user || user.email !== ADMIN_EMAIL) {
+  if (authError || !user || !user.email || !ADMIN_EMAILS.has(user.email)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

@@ -8,7 +8,7 @@ import { getSupabase } from "@/lib/supabase";
 /* Constants & Types                                                   */
 /* ------------------------------------------------------------------ */
 
-const ADMIN_EMAIL = "njecelin17@gmail.com";
+const ADMIN_EMAILS = new Set(["njecelin17@gmail.com", "nathan@mytenantshield.com"]);
 
 type FilterStatus = "pending" | "approved" | "rejected" | "all";
 
@@ -37,7 +37,7 @@ export default function AdminClaims() {
   const [updating, setUpdating] = useState<string | null>(null);
 
   const isAdmin =
-    !auth.loading && auth.user?.email === ADMIN_EMAIL;
+    !auth.loading && !!(auth.user?.email && ADMIN_EMAILS.has(auth.user.email));
 
   /* ---- Fetch all claims ---- */
   const loadClaims = useCallback(async () => {

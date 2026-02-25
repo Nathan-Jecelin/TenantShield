@@ -502,7 +502,7 @@ function ReviewCard({ review }: { review: Review }) {
   );
 }
 
-const ADMIN_EMAIL = "njecelin17@gmail.com";
+const ADMIN_EMAILS = new Set(["njecelin17@gmail.com", "nathan@mytenantshield.com"]);
 
 // ─── 311 COMPLAINT CLASSIFICATION ───
 
@@ -697,7 +697,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [postAnonymously, setPostAnonymously] = useState(true);
 
   const auth = useAuth();
-  const isAdmin = auth.user?.email === ADMIN_EMAIL;
+  const isAdmin = !!(auth.user?.email && ADMIN_EMAILS.has(auth.user.email));
 
   const cityData = useChicagoData(
     view === "profile" && selected ? selected.addresses : null
