@@ -38,11 +38,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ claim: null });
   }
 
-  // Fetch company_name from landlord_profiles
+  // Fetch company_name and plan from landlord_profiles
   let companyName: string | null = null;
   const { data: profile } = await supabase
     .from('landlord_profiles')
-    .select('company_name, verified')
+    .select('company_name, verified, plan')
     .eq('id', data.landlord_id)
     .single();
 
@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
       verification_status: data.verification_status,
       claimed_at: data.claimed_at,
       verified: profile?.verified ?? false,
+      plan: profile?.plan ?? 'free',
     },
   });
 }

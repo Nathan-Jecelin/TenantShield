@@ -661,7 +661,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
   const [watchEmail, setWatchEmail] = useState("");
   const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean } | null>(null);
+  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean; plan?: string } | null>(null);
   const [addressResponses, setAddressResponses] = useState<Record<string, { response_text: string; created_at: string }>>({});
   const [watchMessage, setWatchMessage] = useState("");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
@@ -3583,7 +3583,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             >
               <div style={{ flex: 1, minWidth: 200 }}>
                 <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
-                  {claimInfo.verification_status === "approved" && (
+                  {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" && (
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="#1a7f37" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                       <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -3602,11 +3602,11 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                       fontWeight: 600,
                       padding: "2px 8px",
                       borderRadius: 10,
-                      background: claimInfo.verification_status === "approved" ? "#d1fae5" : "#fef3c7",
-                      color: claimInfo.verification_status === "approved" ? "#065f46" : "#92400e",
+                      background: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#d1fae5" : claimInfo.verification_status === "approved" ? "#e8ecf0" : "#fef3c7",
+                      color: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#065f46" : claimInfo.verification_status === "approved" ? "#57606a" : "#92400e",
                     }}
                   >
-                    {claimInfo.verification_status === "approved" ? "Verified" : "Pending Verification"}
+                    {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "Verified" : claimInfo.verification_status === "approved" ? "Claimed" : "Pending Verification"}
                   </span>
                 </div>
               </div>

@@ -19,6 +19,7 @@ import type {
   NeighborhoodResult,
 } from "@/lib/chicagoData";
 import { addressToSlug } from "@/lib/slugs";
+import { canAccess } from "@/lib/plans";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -171,6 +172,27 @@ export default function LandlordBuildingDetail() {
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [responseText, setResponseText] = useState("");
   const [responseSaving, setResponseSaving] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+
+  /* ---- Upgrade to Pro ---- */
+  async function handleUpgrade() {
+    setUpgrading(true);
+    try {
+      const sb = getSupabase();
+      if (!sb) return;
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setUpgrading(false);
+    }
+  }
 
   /* ---- Load profile + building + alerts ---- */
   const loadData = useCallback(
@@ -737,24 +759,47 @@ export default function LandlordBuildingDetail() {
 
                     {/* Respond button (when no response and not currently editing) */}
                     {v.id && !responses[v.id] && respondingTo !== v.id && (
-                      <button
-                        onClick={() => { setRespondingTo(v.id); setResponseText(""); }}
-                        style={{
-                          marginTop: 8,
-                          marginLeft: 16,
-                          padding: "4px 12px",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          background: "#f6f8fa",
-                          border: "1px solid #d0d7de",
-                          borderRadius: 4,
-                          color: "#1f6feb",
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                        }}
-                      >
-                        Respond
-                      </button>
+                      canAccess("respond", profile.plan) ? (
+                        <button
+                          onClick={() => { setRespondingTo(v.id); setResponseText(""); }}
+                          style={{
+                            marginTop: 8,
+                            marginLeft: 16,
+                            padding: "4px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: "#f6f8fa",
+                            border: "1px solid #d0d7de",
+                            borderRadius: 4,
+                            color: "#1f6feb",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          Respond
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleUpgrade}
+                          disabled={upgrading}
+                          style={{
+                            marginTop: 8,
+                            marginLeft: 16,
+                            padding: "4px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: "linear-gradient(135deg, #1f6feb, #1a7f37)",
+                            border: "none",
+                            borderRadius: 4,
+                            color: "#fff",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            opacity: upgrading ? 0.7 : 1,
+                          }}
+                        >
+                          Upgrade to Respond
+                        </button>
+                      )
                     )}
                   </div>
                 );
@@ -990,7 +1035,7 @@ export default function LandlordBuildingDetail() {
                           </div>
                         );
                       }
-                      return (
+                      return canAccess("respond", profile.plan) ? (
                         <button
                           onClick={() => { setRespondingTo(cKey); setResponseText(""); }}
                           style={{
@@ -1008,6 +1053,27 @@ export default function LandlordBuildingDetail() {
                           }}
                         >
                           Respond
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleUpgrade}
+                          disabled={upgrading}
+                          style={{
+                            marginTop: 8,
+                            marginLeft: 16,
+                            padding: "4px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: "linear-gradient(135deg, #1f6feb, #1a7f37)",
+                            border: "none",
+                            borderRadius: 4,
+                            color: "#fff",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            opacity: upgrading ? 0.7 : 1,
+                          }}
+                        >
+                          Upgrade to Respond
                         </button>
                       );
                     })()}
@@ -1029,7 +1095,30 @@ export default function LandlordBuildingDetail() {
         {/* Recent Alerts */}
         <div style={{ ...cardStyle, marginBottom: 20 }}>
           <h3 style={sectionHeadingStyle}>Recent Alerts</h3>
-          {alerts.length === 0 ? (
+          {!canAccess("alerts", profile.plan) ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 12px" }}>
+                Alerts are a Pro feature. Upgrade to get notified when new violations or complaints are filed.
+              </p>
+              <button
+                onClick={handleUpgrade}
+                disabled={upgrading}
+                style={{
+                  padding: "8px 18px",
+                  background: "#1f6feb",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  opacity: upgrading ? 0.7 : 1,
+                }}
+              >
+                {upgrading ? "Loading..." : "Upgrade to Pro — $49/mo"}
+              </button>
+            </div>
+          ) : alerts.length === 0 ? (
             <p style={{ fontSize: 14, color: "#57606a" }}>
               No alerts for this building yet.
             </p>
@@ -1077,7 +1166,34 @@ export default function LandlordBuildingDetail() {
         </div>
 
         {/* Neighborhood Benchmarks */}
-        {neighborhoodData && (
+        {neighborhoodData && !canAccess("benchmarks", profile.plan) && (
+          <div style={{ ...cardStyle, marginBottom: 20 }}>
+            <h3 style={sectionHeadingStyle}>Neighborhood Benchmarks</h3>
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 12px" }}>
+                See how your building compares to others in the neighborhood. Upgrade to Pro to unlock benchmarks.
+              </p>
+              <button
+                onClick={handleUpgrade}
+                disabled={upgrading}
+                style={{
+                  padding: "8px 18px",
+                  background: "#1f6feb",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  opacity: upgrading ? 0.7 : 1,
+                }}
+              >
+                {upgrading ? "Loading..." : "Upgrade to Pro — $49/mo"}
+              </button>
+            </div>
+          </div>
+        )}
+        {neighborhoodData && canAccess("benchmarks", profile.plan) && (
           <div style={{ ...cardStyle, marginBottom: 20 }}>
             <h3 style={sectionHeadingStyle}>
               Neighborhood Benchmarks — {neighborhoodData.neighborhoodName}
@@ -1214,6 +1330,17 @@ function DashNav({ onLogout }: { onLogout: () => void }) {
           }}
         >
           Dashboard
+        </a>
+        <a
+          href="/landlord/dashboard/settings"
+          style={{
+            fontSize: 13,
+            color: "#1f6feb",
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Settings
         </a>
         <button
           onClick={onLogout}

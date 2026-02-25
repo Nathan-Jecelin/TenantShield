@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSupabase } from "@/lib/supabase";
+import { canAccess } from "@/lib/plans";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -27,10 +28,12 @@ type FilterTab = "all" | "violation" | "311_complaint";
 export default function LandlordAlerts() {
   const auth = useAuth();
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [profilePlan, setProfilePlan] = useState<string>("free");
   const [alerts, setAlerts] = useState<LandlordAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>("all");
   const [markingAll, setMarkingAll] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   /* ---- Load profile + alerts ---- */
   const loadData = useCallback(async (userId: string) => {
@@ -38,7 +41,7 @@ export default function LandlordAlerts() {
     if (!sb) return;
     const { data: prof } = await sb
       .from("landlord_profiles")
-      .select("id")
+      .select("id, plan")
       .eq("user_id", userId)
       .maybeSingle();
     if (!prof) {
@@ -46,6 +49,7 @@ export default function LandlordAlerts() {
       return;
     }
     setProfileId(prof.id);
+    setProfilePlan(prof.plan || "free");
 
     const { data: alts } = await sb
       .from("landlord_alerts")
@@ -65,6 +69,26 @@ export default function LandlordAlerts() {
     }
     loadData(auth.user.id);
   }, [auth.loading, auth.user, loadData]);
+
+  /* ---- Upgrade to Pro ---- */
+  async function handleUpgrade() {
+    setUpgrading(true);
+    try {
+      const sb = getSupabase();
+      if (!sb) return;
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setUpgrading(false);
+    }
+  }
 
   /* ---- Mark single alert as read ---- */
   async function markAsRead(alertId: string) {
@@ -118,6 +142,62 @@ export default function LandlordAlerts() {
       <div style={pageStyle}>
         <DashNav onLogout={auth.signOut} />
         <div style={loadingStyle}>Redirecting...</div>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!canAccess("alerts", profilePlan)) {
+    return (
+      <div style={pageStyle}>
+        <DashNav onLogout={auth.signOut} />
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "36px 20px" }}>
+          <a
+            href="/landlord/dashboard"
+            style={{
+              fontSize: 13,
+              color: "#1f6feb",
+              textDecoration: "none",
+              fontWeight: 600,
+              display: "inline-block",
+              marginBottom: 20,
+            }}
+          >
+            &larr; Back to Dashboard
+          </a>
+          <div
+            style={{
+              ...cardStyle,
+              textAlign: "center",
+              padding: "60px 24px",
+            }}
+          >
+            <div style={{ fontSize: 48, marginBottom: 16 }}>&#128276;</div>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
+              Alerts are a Pro Feature
+            </h2>
+            <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 20px", maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
+              Get notified when new violations or 311 complaints are filed on your buildings. Upgrade to Pro to enable alerts.
+            </p>
+            <button
+              onClick={handleUpgrade}
+              disabled={upgrading}
+              style={{
+                padding: "10px 24px",
+                background: "#1f6feb",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                opacity: upgrading ? 0.7 : 1,
+              }}
+            >
+              {upgrading ? "Loading..." : "Upgrade to Pro — $49/mo"}
+            </button>
+          </div>
+        </div>
         <Footer />
       </div>
     );

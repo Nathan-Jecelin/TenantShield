@@ -12,6 +12,7 @@ import {
   fetchBuildingPermits,
 } from "@/lib/chicagoData";
 import { addressToSlug } from "@/lib/slugs";
+import { canAccess, MAX_FREE_BUILDINGS } from "@/lib/plans";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -74,6 +75,7 @@ export default function LandlordDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
 
   /* ---- Load profile, buildings, alerts ---- */
   const loadData = useCallback(
@@ -204,6 +206,37 @@ export default function LandlordDashboard() {
     }
   }
 
+  /* ---- Handle ?upgraded=true in URL ---- */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("upgraded") === "true") {
+      setSuccessMsg("Welcome to Pro! You now have access to all features.");
+      window.history.replaceState({}, "", window.location.pathname);
+      if (auth.user) loadData(auth.user.id);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ---- Upgrade to Pro ---- */
+  async function handleUpgrade() {
+    setUpgrading(true);
+    try {
+      const sb = getSupabase();
+      if (!sb) return;
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch {
+      setUpgrading(false);
+    }
+  }
+
   /* ---- Derived stats ---- */
   const pendingCount = buildings.filter(
     (b) => b.verification_status === "pending"
@@ -273,13 +306,23 @@ export default function LandlordDashboard() {
               </p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={badgeStyle("#d0e0ff", "#1f6feb")}>
-                {profile.plan === "free"
-                  ? "Free"
-                  : profile.plan === "basic"
-                    ? "Basic"
-                    : "Pro"}
-              </span>
+              {profile.plan === "pro" ? (
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "3px 10px",
+                    borderRadius: 12,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: "linear-gradient(135deg, #1f6feb, #1a7f37)",
+                    color: "#fff",
+                  }}
+                >
+                  Pro
+                </span>
+              ) : (
+                <span style={badgeStyle("#e8ecf0", "#57606a")}>Free</span>
+              )}
               {profile.verified && (
                 <span style={badgeStyle("#dafbe1", "#1a7f37")}>Verified</span>
               )}
@@ -300,6 +343,46 @@ export default function LandlordDashboard() {
           <StatCard label="Pending Claims" value={pendingCount} />
           <StatCard label="Alerts" value={alerts.length} />
         </div>
+
+        {/* Upgrade banner for free users */}
+        {profile.plan === "free" && (
+          <div
+            style={{
+              padding: "14px 20px",
+              background: "linear-gradient(135deg, #eff6ff 0%, #ecfdf5 100%)",
+              border: "1px solid #93c5fd",
+              borderRadius: 8,
+              marginBottom: 20,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
+            <p style={{ fontSize: 13, color: "#1e40af", margin: 0, fontWeight: 500 }}>
+              You&apos;re on the Free plan. Upgrade to Pro for alerts, responses, and unlimited buildings — $49/mo
+            </p>
+            <button
+              onClick={handleUpgrade}
+              disabled={upgrading}
+              style={{
+                padding: "8px 18px",
+                background: "#1f6feb",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                opacity: upgrading ? 0.7 : 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {upgrading ? "Loading..." : "Upgrade"}
+            </button>
+          </div>
+        )}
 
         {/* Success message */}
         {successMsg && (
@@ -333,15 +416,29 @@ export default function LandlordDashboard() {
             Your Buildings
           </h2>
           {!claimMode && (
-            <button
-              onClick={() => {
-                setClaimMode(true);
-                setSuccessMsg(null);
-              }}
-              style={primaryBtnStyle}
-            >
-              + Claim a Building
-            </button>
+            profile.plan !== "pro" && buildings.length >= MAX_FREE_BUILDINGS ? (
+              <button
+                onClick={handleUpgrade}
+                disabled={upgrading}
+                style={{
+                  ...primaryBtnStyle,
+                  background: "linear-gradient(135deg, #1f6feb, #1a7f37)",
+                  opacity: upgrading ? 0.7 : 1,
+                }}
+              >
+                {upgrading ? "Loading..." : "Upgrade to add more buildings"}
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setClaimMode(true);
+                  setSuccessMsg(null);
+                }}
+                style={primaryBtnStyle}
+              >
+                + Claim a Building
+              </button>
+            )
           )}
         </div>
 
@@ -809,6 +906,17 @@ function DashNav({ onLogout }: { onLogout: () => void }) {
           }}
         >
           Back to Home
+        </a>
+        <a
+          href="/landlord/dashboard/settings"
+          style={{
+            fontSize: 13,
+            color: "#1f6feb",
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          Settings
         </a>
         <button
           onClick={onLogout}
