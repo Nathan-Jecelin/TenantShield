@@ -20,6 +20,12 @@ interface Scores {
   overall: number;
 }
 
+interface UserProfile {
+  user_id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
 interface Review {
   id: string;
   author: string;
@@ -27,6 +33,8 @@ interface Review {
   rating: number;
   text: string;
   helpful: number;
+  anonymous?: boolean;
+  avatar_url?: string | null;
 }
 
 interface Landlord {
@@ -126,12 +134,15 @@ interface DbReview {
   text: string;
   helpful: number;
   created_at: string;
+  anonymous?: boolean;
+  user_id?: string;
 }
 
 function dbToLandlord(
   ll: DbLandlord,
   addresses: DbAddress[],
-  reviews: DbReview[]
+  reviews: DbReview[],
+  profileMap?: Map<string, UserProfile>
 ): Landlord {
   return {
     id: ll.id,
@@ -150,15 +161,42 @@ function dbToLandlord(
     reviewCount: ll.review_count,
     violations: ll.violations,
     complaints: ll.complaints,
-    reviews: reviews.map((r) => ({
-      id: r.id,
-      author: r.author,
-      date: formatDate(r.created_at),
-      rating: r.rating,
-      text: r.text,
-      helpful: r.helpful,
-    })),
+    reviews: reviews.map((r) => {
+      const profile = r.user_id && profileMap ? profileMap.get(r.user_id) : null;
+      const isAnon = r.anonymous !== false;
+      return {
+        id: r.id,
+        author: isAnon ? r.author : (profile?.display_name || r.author),
+        date: formatDate(r.created_at),
+        rating: r.rating,
+        text: r.text,
+        helpful: r.helpful,
+        anonymous: isAnon,
+        avatar_url: isAnon ? null : (profile?.avatar_url || null),
+      };
+    }),
   };
+}
+
+async function fetchProfileMap(reviews: DbReview[]): Promise<Map<string, UserProfile>> {
+  const profileMap = new Map<string, UserProfile>();
+  const userIds = [...new Set(
+    reviews
+      .filter((r) => r.anonymous === false && r.user_id)
+      .map((r) => r.user_id!)
+  )];
+  if (userIds.length > 0) {
+    const { data: profiles } = await getSupabase()!
+      .from("user_profiles")
+      .select("user_id, display_name, avatar_url")
+      .in("user_id", userIds);
+    if (profiles) {
+      for (const p of profiles as UserProfile[]) {
+        profileMap.set(p.user_id, p);
+      }
+    }
+  }
+  return profileMap;
 }
 
 async function fetchAllLandlords(): Promise<Landlord[]> {
@@ -179,8 +217,10 @@ async function fetchAllLandlords(): Promise<Landlord[]> {
       .select("*")
       .eq("landlord_id", ll.id)
       .order("created_at", { ascending: false });
+    const typedReviews = (reviews || []) as DbReview[];
+    const profileMap = await fetchProfileMap(typedReviews);
     results.push(
-      dbToLandlord(ll, (addresses || []) as DbAddress[], (reviews || []) as DbReview[])
+      dbToLandlord(ll, (addresses || []) as DbAddress[], typedReviews, profileMap)
     );
   }
   return results;
@@ -240,8 +280,10 @@ async function searchLandlords(query: string): Promise<Landlord[]> {
       .select("*")
       .eq("landlord_id", ll.id)
       .order("created_at", { ascending: false });
+    const typedReviews = (reviews || []) as DbReview[];
+    const profileMap = await fetchProfileMap(typedReviews);
     results.push(
-      dbToLandlord(ll, (addresses || []) as DbAddress[], (reviews || []) as DbReview[])
+      dbToLandlord(ll, (addresses || []) as DbAddress[], typedReviews, profileMap)
     );
   }
   return results;
@@ -250,11 +292,14 @@ async function searchLandlords(query: string): Promise<Landlord[]> {
 async function submitReviewToDb(
   landlordId: string,
   form: ReviewForm,
-  userId?: string
+  userId?: string,
+  anonymous: boolean = true,
+  displayName?: string
 ): Promise<boolean> {
+  const authorName = (!anonymous && displayName) ? displayName : "Anonymous Tenant";
   const { error } = await getSupabase()!.from("reviews").insert({
     landlord_id: landlordId,
-    author: "Anonymous Tenant",
+    author: authorName,
     rating: form.overall,
     text: form.text,
     helpful: 0,
@@ -262,6 +307,7 @@ async function submitReviewToDb(
     communication: form.communication || null,
     deposit: form.deposit || null,
     honesty: form.honesty || null,
+    anonymous,
     ...(userId ? { user_id: userId } : {}),
   });
   if (error) return false;
@@ -371,6 +417,8 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
 }
 
 function ReviewCard({ review }: { review: Review }) {
+  const avatarSize = 24;
+  const authorInitial = review.author.charAt(0).toUpperCase();
   return (
     <div style={{ borderBottom: "1px solid #e8ecf0", padding: "20px 0" }}>
       <div
@@ -383,6 +431,33 @@ function ReviewCard({ review }: { review: Review }) {
       >
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {review.avatar_url ? (
+              <img
+                src={review.avatar_url}
+                alt=""
+                width={avatarSize}
+                height={avatarSize}
+                style={{ borderRadius: "50%", objectFit: "cover" }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: avatarSize,
+                  height: avatarSize,
+                  borderRadius: "50%",
+                  background: "#e8ecf0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#57606a",
+                  flexShrink: 0,
+                }}
+              >
+                {authorInitial}
+              </div>
+            )}
             <Stars rating={review.rating} size={13} />
             <span
               style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}
@@ -613,6 +688,11 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [blogEditing, setBlogEditing] = useState<string | null>(null); // post id or "new"
   const [blogForm, setBlogForm] = useState({ slug: "", title: "", excerpt: "", content: "", published: false });
   const [adminUsers, setAdminUsers] = useState<{ users: { id: string; email: string; created_at: string; last_sign_in_at: string; provider: string }[]; reviewers: { email: string; reviewCount: number; lastReview: string; landlords: string[] }[] } | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [profileForm, setProfileForm] = useState({ display_name: "", avatar_url: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [postAnonymously, setPostAnonymously] = useState(true);
 
   const auth = useAuth();
   const isAdmin = auth.user?.email === ADMIN_EMAIL;
@@ -663,6 +743,42 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         );
       } else {
         setShowWelcomeBanner(true);
+      }
+    })();
+  }, [auth.user]);
+
+  // Fetch/create user profile when auth changes
+  useEffect(() => {
+    if (!auth.user || !isSupabaseConfigured()) {
+      setUserProfile(null);
+      setProfileForm({ display_name: "", avatar_url: "" });
+      return;
+    }
+    (async () => {
+      const sb = getSupabase()!;
+      const { data } = await sb
+        .from("user_profiles")
+        .select("user_id, display_name, avatar_url")
+        .eq("user_id", auth.user!.id)
+        .single();
+      if (data) {
+        const p = data as UserProfile;
+        setUserProfile(p);
+        setProfileForm({
+          display_name: p.display_name || "",
+          avatar_url: p.avatar_url || "",
+        });
+        setPostAnonymously(!p.display_name);
+      } else {
+        // Create an empty profile row
+        await sb.from("user_profiles").upsert({
+          user_id: auth.user!.id,
+          display_name: null,
+          avatar_url: null,
+        }, { onConflict: "user_id" });
+        setUserProfile({ user_id: auth.user!.id, display_name: null, avatar_url: null });
+        setProfileForm({ display_name: "", avatar_url: "" });
+        setPostAnonymously(true);
       }
     })();
   }, [auth.user]);
@@ -1115,6 +1231,25 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     }
   }
 
+  async function saveProfile() {
+    if (!auth.user || !isSupabaseConfigured()) return;
+    setProfileSaving(true);
+    const trimmedName = profileForm.display_name.trim() || null;
+    const trimmedUrl = profileForm.avatar_url.trim() || null;
+    await getSupabase()!
+      .from("user_profiles")
+      .update({
+        display_name: trimmedName,
+        avatar_url: trimmedUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", auth.user.id);
+    setUserProfile((prev) => prev ? { ...prev, display_name: trimmedName, avatar_url: trimmedUrl } : prev);
+    setProfileSaving(false);
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 3000);
+  }
+
   function goReview() {
     setShowGate(false);
     if (!auth.user && isSupabaseConfigured()) {
@@ -1133,6 +1268,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
       text: "",
     });
     setSubmitted(false);
+    setPostAnonymously(!userProfile?.display_name);
     setView("review");
   }
 
@@ -1227,7 +1363,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           });
         }
 
-        const ok = await submitReviewToDb(ex.id, form, auth.user?.id);
+        const ok = await submitReviewToDb(ex.id, form, auth.user?.id, postAnonymously, userProfile?.display_name || undefined);
         if (ok) {
           const updated = await fetchAllLandlords();
           if (updated.length > 0) setLandlords(updated);
@@ -1237,11 +1373,13 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     } else if (ex) {
       const nr: Review = {
         id: "r-u-" + Date.now(),
-        author: "Anonymous Tenant",
+        author: (!postAnonymously && userProfile?.display_name) ? userProfile.display_name : "Anonymous Tenant",
         date: formatDate(new Date().toISOString()),
         rating: form.overall,
         text: form.text,
         helpful: 0,
+        anonymous: postAnonymously,
+        avatar_url: postAnonymously ? null : (userProfile?.avatar_url || null),
       };
       setLandlords((p) =>
         p.map((ll) =>
@@ -3792,6 +3930,39 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                   }}
                 />
               </div>
+              {auth.user && userProfile?.display_name && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: "12px 14px",
+                    background: "#f6f8fa",
+                    borderRadius: 6,
+                    border: "1px solid #e8ecf0",
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 13,
+                      color: "#1f2328",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!postAnonymously}
+                      onChange={(e) => setPostAnonymously(!e.target.checked)}
+                      style={{ accentColor: "#1f6feb" }}
+                    />
+                    Post as <strong>{userProfile.display_name}</strong>
+                  </label>
+                  <div style={{ fontSize: 12, color: "#8b949e", marginTop: 4, marginLeft: 24 }}>
+                    {postAnonymously ? "Your review will appear as \"Anonymous Tenant\"" : `Your review will display your name${userProfile.avatar_url ? " and avatar" : ""}`}
+                  </div>
+                </div>
+              )}
               <button
                 onClick={submitReview}
                 disabled={
@@ -4368,6 +4539,128 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                 year: "numeric",
               })}
             </div>
+          </div>
+
+          {/* Profile Editing Section */}
+          <div
+            style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "24px 28px",
+              marginBottom: 16,
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#1f2328",
+                margin: "0 0 16px",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
+            >
+              Your Profile
+            </h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
+              {profileForm.avatar_url ? (
+                <img
+                  src={profileForm.avatar_url}
+                  alt="Avatar preview"
+                  width={48}
+                  height={48}
+                  style={{ borderRadius: "50%", objectFit: "cover", border: "2px solid #e8ecf0" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    background: "#e8ecf0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 20,
+                    fontWeight: 700,
+                    color: "#57606a",
+                    flexShrink: 0,
+                    border: "2px solid #e8ecf0",
+                  }}
+                >
+                  {profileForm.display_name ? profileForm.display_name.charAt(0).toUpperCase() : "?"}
+                </div>
+              )}
+              <div style={{ fontSize: 14, color: "#424a53" }}>
+                {profileForm.display_name || <span style={{ color: "#8b949e", fontStyle: "italic" }}>No display name set</span>}
+              </div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#1f2328",
+                  marginBottom: 5,
+                }}
+              >
+                Display Name
+              </label>
+              <input
+                type="text"
+                value={profileForm.display_name}
+                onChange={(e) => setProfileForm((f) => ({ ...f, display_name: e.target.value.slice(0, 50) }))}
+                placeholder="How you want to appear on reviews"
+                maxLength={50}
+                style={inp}
+              />
+              <div style={{ fontSize: 11, color: "#8b949e", marginTop: 3 }}>
+                {profileForm.display_name.length}/50 characters
+              </div>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#1f2328",
+                  marginBottom: 5,
+                }}
+              >
+                Avatar URL
+              </label>
+              <input
+                type="url"
+                value={profileForm.avatar_url}
+                onChange={(e) => setProfileForm((f) => ({ ...f, avatar_url: e.target.value }))}
+                placeholder="https://example.com/your-photo.jpg"
+                style={inp}
+              />
+              <div style={{ fontSize: 11, color: "#8b949e", marginTop: 3 }}>
+                Link to a profile image (e.g. Gravatar, social media photo URL)
+              </div>
+            </div>
+            <button
+              onClick={saveProfile}
+              disabled={profileSaving}
+              style={{
+                padding: "10px 22px",
+                background: profileSaved ? "#1a7f37" : "#1f6feb",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: profileSaving ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                opacity: profileSaving ? 0.7 : 1,
+              }}
+            >
+              {profileSaving ? "Saving..." : profileSaved ? "Saved!" : "Save Profile"}
+            </button>
           </div>
 
           <div
