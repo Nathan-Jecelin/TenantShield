@@ -662,6 +662,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [watchEmail, setWatchEmail] = useState("");
   const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean } | null>(null);
+  const [addressResponses, setAddressResponses] = useState<Record<string, { response_text: string; created_at: string }>>({});
   const [watchMessage, setWatchMessage] = useState("");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
@@ -887,6 +888,46 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setClaimInfo(d.claim ?? null); })
       .catch(() => { if (!cancelled) setClaimInfo(null); });
+    return () => { cancelled = true; };
+  }, [view, addressResult]);
+
+  // Fetch landlord responses for address profile violations
+  useEffect(() => {
+    if (view !== "address-profile" || !addressResult) {
+      setAddressResponses({});
+      return;
+    }
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    const sb = getSupabase()!;
+    const parsed = parseStreetAddress(addressResult.address);
+    const variants = parsed ? generateAddressVariants(parsed) : [addressResult.address];
+
+    // Find verified claimed buildings matching this address, then get their responses
+    (async () => {
+      // Find claimed_buildings that match this address and are verified
+      const { data: buildings } = await sb
+        .from("claimed_buildings")
+        .select("id")
+        .eq("verified", true)
+        .in("address", variants);
+      if (cancelled || !buildings || buildings.length === 0) return;
+
+      const buildingIds = buildings.map((b: { id: string }) => b.id);
+      const { data: resps } = await sb
+        .from("landlord_responses")
+        .select("violation_id, response_text, created_at")
+        .in("building_id", buildingIds);
+      if (cancelled || !resps) return;
+
+      const map: Record<string, { response_text: string; created_at: string }> = {};
+      for (const r of resps) {
+        if (r.violation_id) {
+          map[r.violation_id] = { response_text: r.response_text, created_at: r.created_at };
+        }
+      }
+      setAddressResponses(map);
+    })();
     return () => { cancelled = true; };
   }, [view, addressResult]);
 
@@ -3243,6 +3284,20 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                             {c.sr_number && <span> · #{c.sr_number}</span>}
                             {c.ward && <span> · Ward {c.ward}</span>}
                           </div>
+                          {c.sr_number && addressResponses[`sr_${c.sr_number}`] && (
+                            <div style={{
+                              marginTop: 10,
+                              marginLeft: 16,
+                              padding: "10px 14px",
+                              borderLeft: "3px solid #1a7f37",
+                              background: "#f0fdf4",
+                              borderRadius: "0 6px 6px 0",
+                            }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
+                              <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[`sr_${c.sr_number}`].response_text}</p>
+                              <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[`sr_${c.sr_number}`].created_at)}</div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -3353,6 +3408,20 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                             {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
                             {v.violation_code && <span> · Code {v.violation_code}</span>}
                           </div>
+                          {v.id && addressResponses[v.id] && (
+                            <div style={{
+                              marginTop: 10,
+                              marginLeft: 16,
+                              padding: "10px 14px",
+                              borderLeft: "3px solid #1a7f37",
+                              background: "#f0fdf4",
+                              borderRadius: "0 6px 6px 0",
+                            }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
+                              <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[v.id].response_text}</p>
+                              <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[v.id].created_at)}</div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

@@ -166,6 +166,12 @@ export default function LandlordBuildingDetail() {
   const [showAllViolations, setShowAllViolations] = useState(false);
   const [showAllComplaints, setShowAllComplaints] = useState(false);
 
+  // Responses state
+  const [responses, setResponses] = useState<Record<string, { id: string; response_text: string; created_at: string }>>({});
+  const [respondingTo, setRespondingTo] = useState<string | null>(null);
+  const [responseText, setResponseText] = useState("");
+  const [responseSaving, setResponseSaving] = useState(false);
+
   /* ---- Load profile + building + alerts ---- */
   const loadData = useCallback(
     async (userId: string) => {
@@ -206,6 +212,21 @@ export default function LandlordBuildingDetail() {
         .order("created_at", { ascending: false })
         .limit(10);
       if (alts) setAlerts(alts);
+
+      // Load existing responses for this building
+      const { data: resps } = await sb
+        .from("landlord_responses")
+        .select("id, violation_id, response_text, created_at")
+        .eq("building_id", buildingId);
+      if (resps) {
+        const map: Record<string, { id: string; response_text: string; created_at: string }> = {};
+        for (const r of resps) {
+          if (r.violation_id) {
+            map[r.violation_id] = { id: r.id, response_text: r.response_text, created_at: r.created_at };
+          }
+        }
+        setResponses(map);
+      }
 
       // Fetch Chicago API data
       setDataLoading(true);
@@ -262,6 +283,53 @@ export default function LandlordBuildingDetail() {
     loadData(auth.user.id);
   }, [auth.loading, auth.user, loadData]);
 
+  /* ---- Save / edit a response ---- */
+  const saveResponse = useCallback(
+    async (violationId: string) => {
+      if (!profile || !buildingId || !responseText.trim()) return;
+      setResponseSaving(true);
+      const sb = getSupabase();
+      if (!sb) return;
+
+      const existing = responses[violationId];
+      if (existing) {
+        // UPDATE existing response
+        const { error } = await sb
+          .from("landlord_responses")
+          .update({ response_text: responseText.trim(), updated_at: new Date().toISOString() })
+          .eq("id", existing.id);
+        if (!error) {
+          setResponses((prev) => ({
+            ...prev,
+            [violationId]: { ...existing, response_text: responseText.trim(), created_at: existing.created_at },
+          }));
+        }
+      } else {
+        // INSERT new response
+        const { data, error } = await sb
+          .from("landlord_responses")
+          .insert({
+            landlord_id: profile.id,
+            building_id: buildingId,
+            violation_id: violationId,
+            response_text: responseText.trim(),
+          })
+          .select("id, created_at")
+          .single();
+        if (!error && data) {
+          setResponses((prev) => ({
+            ...prev,
+            [violationId]: { id: data.id, response_text: responseText.trim(), created_at: data.created_at },
+          }));
+        }
+      }
+      setRespondingTo(null);
+      setResponseText("");
+      setResponseSaving(false);
+    },
+    [profile, buildingId, responseText, responses]
+  );
+
   /* ---- Derived data ---- */
   const buildingComplaints = complaints.filter((c) => isBuildingRelated(c.sr_type));
   const streetComplaints = complaints.filter((c) => !isBuildingRelated(c.sr_type));
@@ -306,14 +374,29 @@ export default function LandlordBuildingDetail() {
 
   const score = computeBuildingScore(violations, complaints);
 
-  // Find this building's rank in neighborhood top addresses
+  // Find this building's rank in neighborhood — use allAddresses for full ranking
   let neighborhoodRank: number | null = null;
+  let neighborhoodTotal = 0;
+  let neighborhoodTier: "top" | "middle" | "bottom" | null = null;
   if (neighborhoodData && building) {
     const parsed = parseStreetAddress(building.address);
-    const idx = neighborhoodData.topAddresses.findIndex(
-      (a) => a.address === parsed || a.address === building.address
+    const variants = parsed ? generateAddressVariants(parsed) : [building.address];
+    const all = neighborhoodData.allAddresses;
+    neighborhoodTotal = all.length;
+    const idx = all.findIndex(
+      (a) => variants.some((v) => a.address === v) || a.address === building.address
     );
-    if (idx >= 0) neighborhoodRank = idx + 1;
+    if (idx >= 0) {
+      neighborhoodRank = idx + 1;
+    } else {
+      // Building has no complaints — it ranks after all addresses (best position)
+      neighborhoodTotal = all.length + 1;
+      neighborhoodRank = neighborhoodTotal;
+    }
+    const pct = neighborhoodRank / neighborhoodTotal;
+    if (pct <= 0.25) neighborhoodTier = "bottom"; // most issues = bottom 25%
+    else if (pct <= 0.75) neighborhoodTier = "middle";
+    else neighborhoodTier = "top"; // least issues = top 25%
   }
 
   /* ---------------------------------------------------------------- */
@@ -572,6 +655,107 @@ export default function LandlordBuildingDetail() {
                       {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
                       {v.violation_code && <span> · Code {v.violation_code}</span>}
                     </div>
+
+                    {/* Landlord response */}
+                    {v.id && responses[v.id] && respondingTo !== v.id && (
+                      <div style={{
+                        marginTop: 10,
+                        marginLeft: 16,
+                        padding: "10px 14px",
+                        borderLeft: "3px solid #1a7f37",
+                        background: "#f0fdf4",
+                        borderRadius: "0 6px 6px 0",
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Your Response</div>
+                        <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{responses[v.id].response_text}</p>
+                        <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(responses[v.id].created_at)}</div>
+                        <button
+                          onClick={() => { setRespondingTo(v.id); setResponseText(responses[v.id].response_text); }}
+                          style={{ marginTop: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "none", border: "1px solid #d0d7de", borderRadius: 4, color: "#57606a", cursor: "pointer", fontFamily: "inherit" }}
+                        >
+                          Edit Response
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Respond / edit inline form */}
+                    {v.id && respondingTo === v.id && (
+                      <div style={{ marginTop: 10, marginLeft: 16, padding: "12px 14px", background: "#f6f8fa", borderRadius: 6, border: "1px solid #e8ecf0" }}>
+                        <textarea
+                          value={responseText}
+                          onChange={(e) => setResponseText(e.target.value)}
+                          placeholder="Write a public response to this violation..."
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            fontSize: 13,
+                            border: "1px solid #d0d7de",
+                            borderRadius: 6,
+                            fontFamily: "inherit",
+                            resize: "vertical",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <button
+                            onClick={() => saveResponse(v.id)}
+                            disabled={responseSaving || !responseText.trim()}
+                            style={{
+                              padding: "6px 14px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: responseSaving || !responseText.trim() ? "#94d3a2" : "#1a7f37",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 6,
+                              cursor: responseSaving || !responseText.trim() ? "not-allowed" : "pointer",
+                              fontFamily: "inherit",
+                            }}
+                          >
+                            {responseSaving ? "Saving..." : responses[v.id] ? "Update" : "Save Response"}
+                          </button>
+                          <button
+                            onClick={() => { setRespondingTo(null); setResponseText(""); }}
+                            style={{
+                              padding: "6px 14px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: "none",
+                              border: "1px solid #d0d7de",
+                              borderRadius: 6,
+                              color: "#57606a",
+                              cursor: "pointer",
+                              fontFamily: "inherit",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Respond button (when no response and not currently editing) */}
+                    {v.id && !responses[v.id] && respondingTo !== v.id && (
+                      <button
+                        onClick={() => { setRespondingTo(v.id); setResponseText(""); }}
+                        style={{
+                          marginTop: 8,
+                          marginLeft: 16,
+                          padding: "4px 12px",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          background: "#f6f8fa",
+                          border: "1px solid #d0d7de",
+                          borderRadius: 4,
+                          color: "#1f6feb",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        Respond
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -722,6 +906,111 @@ export default function LandlordBuildingDetail() {
                       {c.sr_number && <span> · #{c.sr_number}</span>}
                       {c.ward && <span> · Ward {c.ward}</span>}
                     </div>
+
+                    {/* Landlord response for complaint */}
+                    {(() => {
+                      const cKey = c.sr_number ? `sr_${c.sr_number}` : null;
+                      if (!cKey) return null;
+                      if (responses[cKey] && respondingTo !== cKey) {
+                        return (
+                          <div style={{
+                            marginTop: 10,
+                            marginLeft: 16,
+                            padding: "10px 14px",
+                            borderLeft: "3px solid #1a7f37",
+                            background: "#f0fdf4",
+                            borderRadius: "0 6px 6px 0",
+                          }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Your Response</div>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{responses[cKey].response_text}</p>
+                            <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(responses[cKey].created_at)}</div>
+                            <button
+                              onClick={() => { setRespondingTo(cKey); setResponseText(responses[cKey].response_text); }}
+                              style={{ marginTop: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "none", border: "1px solid #d0d7de", borderRadius: 4, color: "#57606a", cursor: "pointer", fontFamily: "inherit" }}
+                            >
+                              Edit Response
+                            </button>
+                          </div>
+                        );
+                      }
+                      if (respondingTo === cKey) {
+                        return (
+                          <div style={{ marginTop: 10, marginLeft: 16, padding: "12px 14px", background: "#f6f8fa", borderRadius: 6, border: "1px solid #e8ecf0" }}>
+                            <textarea
+                              value={responseText}
+                              onChange={(e) => setResponseText(e.target.value)}
+                              placeholder="Write a public response to this complaint..."
+                              rows={3}
+                              style={{
+                                width: "100%",
+                                padding: "8px 10px",
+                                fontSize: 13,
+                                border: "1px solid #d0d7de",
+                                borderRadius: 6,
+                                fontFamily: "inherit",
+                                resize: "vertical",
+                                boxSizing: "border-box",
+                              }}
+                            />
+                            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                              <button
+                                onClick={() => saveResponse(cKey)}
+                                disabled={responseSaving || !responseText.trim()}
+                                style={{
+                                  padding: "6px 14px",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  background: responseSaving || !responseText.trim() ? "#94d3a2" : "#1a7f37",
+                                  color: "#fff",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  cursor: responseSaving || !responseText.trim() ? "not-allowed" : "pointer",
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                {responseSaving ? "Saving..." : responses[cKey] ? "Update" : "Save Response"}
+                              </button>
+                              <button
+                                onClick={() => { setRespondingTo(null); setResponseText(""); }}
+                                style={{
+                                  padding: "6px 14px",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  background: "none",
+                                  border: "1px solid #d0d7de",
+                                  borderRadius: 6,
+                                  color: "#57606a",
+                                  cursor: "pointer",
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          onClick={() => { setRespondingTo(cKey); setResponseText(""); }}
+                          style={{
+                            marginTop: 8,
+                            marginLeft: 16,
+                            padding: "4px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: "#f6f8fa",
+                            border: "1px solid #d0d7de",
+                            borderRadius: 4,
+                            color: "#1f6feb",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          Respond
+                        </button>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -815,9 +1104,27 @@ export default function LandlordBuildingDetail() {
                 </div>
                 <div style={nhStatLabelStyle}>
                   {neighborhoodRank
-                    ? `Rank among top ${neighborhoodData.topAddresses.length} addresses`
-                    : "Not in top addresses"}
+                    ? `of ${neighborhoodTotal} buildings`
+                    : "Not ranked"}
                 </div>
+                {neighborhoodTier && (
+                  <div style={{
+                    marginTop: 6,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "2px 8px",
+                    borderRadius: 10,
+                    display: "inline-block",
+                    background: neighborhoodTier === "top" ? "#dafbe1" : neighborhoodTier === "middle" ? "#f6f8fa" : "#ffebe9",
+                    color: neighborhoodTier === "top" ? "#1a7f37" : neighborhoodTier === "middle" ? "#57606a" : "#cf222e",
+                  }}>
+                    {neighborhoodTier === "top"
+                      ? "Top 25% in your area"
+                      : neighborhoodTier === "middle"
+                        ? "Average for your area"
+                        : "Needs attention — bottom 25%"}
+                  </div>
+                )}
               </div>
             </div>
             {neighborhoodData.topAddresses.length > 0 && (

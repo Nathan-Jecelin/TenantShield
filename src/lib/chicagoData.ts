@@ -379,6 +379,11 @@ export interface NeighborhoodResult {
     complaintCount: number;
     violationCount: number;
   }[];
+  allAddresses: {
+    address: string;
+    complaintCount: number;
+    violationCount: number;
+  }[];
   totalComplaints: number;
   totalViolations: number;
   recentComplaints: ServiceRequest[];
@@ -399,7 +404,7 @@ export function matchNeighborhood(query: string): { id: string; name: string } |
  */
 export async function fetchNeighborhoodData(
   communityAreaId: string
-): Promise<{ topAddresses: { address: string; count: number }[]; complaints: ServiceRequest[] }> {
+): Promise<{ topAddresses: { address: string; count: number }[]; allAddresses: { address: string; count: number }[]; complaints: ServiceRequest[] }> {
   // Get recent 311 complaints for this community area
   const params = new URLSearchParams({
     $where: `community_area='${communityAreaId}'`,
@@ -420,12 +425,12 @@ export async function fetchNeighborhoodData(
       addrCounts[c.street_address] = (addrCounts[c.street_address] || 0) + 1;
     }
   }
-  const topAddresses = Object.entries(addrCounts)
+  const allAddresses = Object.entries(addrCounts)
     .map(([address, count]) => ({ address, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+    .sort((a, b) => b.count - a.count);
+  const topAddresses = allAddresses.slice(0, 10);
 
-  return { topAddresses, complaints };
+  return { topAddresses, allAddresses, complaints };
 }
 
 /**
@@ -436,7 +441,7 @@ export async function fetchFullNeighborhoodData(
   communityAreaId: string,
   neighborhoodName: string
 ): Promise<NeighborhoodResult> {
-  const { topAddresses, complaints } = await fetchNeighborhoodData(communityAreaId);
+  const { topAddresses, allAddresses, complaints } = await fetchNeighborhoodData(communityAreaId);
 
   // Fetch violations for the top addresses
   const topAddrStrings = topAddresses.map((a) => a.address);
@@ -472,6 +477,11 @@ export async function fetchFullNeighborhoodData(
     communityArea: communityAreaId,
     neighborhoodName,
     topAddresses: topAddresses.map((a) => ({
+      address: a.address,
+      complaintCount: a.count,
+      violationCount: violationCounts[a.address] || 0,
+    })),
+    allAddresses: allAddresses.map((a) => ({
       address: a.address,
       complaintCount: a.count,
       violationCount: violationCounts[a.address] || 0,
