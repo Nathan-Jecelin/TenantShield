@@ -692,6 +692,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   const [profileForm, setProfileForm] = useState({ display_name: "", avatar_url: "" });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [postAnonymously, setPostAnonymously] = useState(true);
 
   const auth = useAuth();
@@ -1248,6 +1249,50 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     setProfileSaving(false);
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 3000);
+  }
+
+  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !auth.user || !isSupabaseConfigured()) return;
+
+    // Validate type
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file.");
+      return;
+    }
+    // Validate size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image must be under 2 MB.");
+      return;
+    }
+
+    setAvatarUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${auth.user.id}/avatar.${ext}`;
+      const supabase = getSupabase()!;
+
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { upsert: true });
+
+      if (error) {
+        alert("Upload failed: " + error.message);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("avatars")
+        .getPublicUrl(path);
+
+      // Append cache-buster so the browser shows the new image
+      const publicUrl = urlData.publicUrl + "?t=" + Date.now();
+      setProfileForm((f) => ({ ...f, avatar_url: publicUrl }));
+    } finally {
+      setAvatarUploading(false);
+      // Reset input so re-uploading the same file triggers onChange
+      e.target.value = "";
+    }
   }
 
   function goReview() {
@@ -4630,17 +4675,51 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
                   marginBottom: 5,
                 }}
               >
-                Avatar URL
+                Avatar
               </label>
-              <input
-                type="url"
-                value={profileForm.avatar_url}
-                onChange={(e) => setProfileForm((f) => ({ ...f, avatar_url: e.target.value }))}
-                placeholder="https://example.com/your-photo.jpg"
-                style={inp}
-              />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <label
+                  style={{
+                    display: "inline-block",
+                    padding: "7px 16px",
+                    background: "#f6f8fa",
+                    border: "1px solid #d1d9e0",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: avatarUploading ? "#8b949e" : "#1f2328",
+                    cursor: avatarUploading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {avatarUploading ? "Uploading..." : "Upload Image"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    disabled={avatarUploading}
+                    style={{ display: "none" }}
+                  />
+                </label>
+                {profileForm.avatar_url && (
+                  <button
+                    type="button"
+                    onClick={() => setProfileForm((f) => ({ ...f, avatar_url: "" }))}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      fontSize: 12,
+                      color: "#cf222e",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
               <div style={{ fontSize: 11, color: "#8b949e", marginTop: 3 }}>
-                Link to a profile image (e.g. Gravatar, social media photo URL)
+                JPG, PNG, or GIF up to 2 MB
               </div>
             </div>
             <button
