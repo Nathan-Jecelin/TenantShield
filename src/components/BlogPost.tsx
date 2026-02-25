@@ -246,6 +246,16 @@ export default function BlogPost({ slug }: { slug: string }) {
         ) : null}
       </div>
 
+      <div style={{ maxWidth: 680, margin: "24px auto 0", padding: "0 20px", textAlign: "center" }}>
+        <ins className="adsbygoogle"
+          style={{ display: "block" }}
+          data-ad-client="ca-pub-1105551881353525"
+          data-ad-slot="auto"
+          data-ad-format="auto"
+          data-full-width-responsive="true" />
+        <script dangerouslySetInnerHTML={{ __html: "(adsbygoogle = window.adsbygoogle || []).push({});" }} />
+      </div>
+
       <NewsletterSignup />
 
       <footer

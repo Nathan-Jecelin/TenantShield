@@ -3304,6 +3304,16 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
             )}
           </div>
 
+          <div style={{ textAlign: "center", marginBottom: 16 }}>
+            <ins className="adsbygoogle"
+              style={{ display: "block" }}
+              data-ad-client="ca-pub-1105551881353525"
+              data-ad-slot="auto"
+              data-ad-format="auto"
+              data-full-width-responsive="true" />
+            <script dangerouslySetInnerHTML={{ __html: "(adsbygoogle = window.adsbygoogle || []).push({});" }} />
+          </div>
+
           {/* Building Claim Info / Claim CTA */}
           {claimInfo && (
             <div
