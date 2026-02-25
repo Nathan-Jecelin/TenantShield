@@ -161,6 +161,8 @@ export default function LandlordBuildingDetail() {
 
   // UI state
   const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
+  const [violationFilter, setViolationFilter] = useState<"all" | "open" | "resolved">("all");
+  const [complaintStatusFilter, setComplaintStatusFilter] = useState<"all" | "open" | "resolved">("all");
   const [showAllViolations, setShowAllViolations] = useState(false);
   const [showAllComplaints, setShowAllComplaints] = useState(false);
 
@@ -269,6 +271,38 @@ export default function LandlordBuildingDetail() {
       : complaintFilter === "street"
         ? streetComplaints
         : complaints;
+
+  // Violation status filtering
+  const openViolations = violations.filter((v) => {
+    const s = v.violation_status?.toUpperCase() || "";
+    return s !== "COMPLIANT" && s !== "COMPLIED";
+  });
+  const resolvedViolations = violations.filter((v) => {
+    const s = v.violation_status?.toUpperCase() || "";
+    return s === "COMPLIANT" || s === "COMPLIED";
+  });
+  const filteredViolations =
+    violationFilter === "open"
+      ? openViolations
+      : violationFilter === "resolved"
+        ? resolvedViolations
+        : violations;
+
+  // Complaint status filtering (layered on top of type filter)
+  const openFilteredComplaints = filteredComplaints.filter((c) => {
+    const s = c.status?.toUpperCase() || "";
+    return s !== "CLOSED" && s !== "COMPLETED";
+  });
+  const resolvedFilteredComplaints = filteredComplaints.filter((c) => {
+    const s = c.status?.toUpperCase() || "";
+    return s === "CLOSED" || s === "COMPLETED";
+  });
+  const statusFilteredComplaints =
+    complaintStatusFilter === "open"
+      ? openFilteredComplaints
+      : complaintStatusFilter === "resolved"
+        ? resolvedFilteredComplaints
+        : filteredComplaints;
 
   const score = computeBuildingScore(violations, complaints);
 
@@ -437,18 +471,44 @@ export default function LandlordBuildingDetail() {
 
         {/* Building Violations */}
         <div style={{ ...cardStyle, marginBottom: 20 }}>
-          <h3 style={sectionHeadingStyle}>
-            Building Violations ({violations.length})
-          </h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            <h3 style={{ ...sectionHeadingStyle, marginBottom: 0 }}>
+              Building Violations ({filteredViolations.length})
+            </h3>
+            {violations.length > 0 && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => { setViolationFilter("all"); setShowAllViolations(false); }}
+                  style={filterBtnStyle(violationFilter === "all")}
+                >
+                  All ({violations.length})
+                </button>
+                <button
+                  onClick={() => { setViolationFilter("open"); setShowAllViolations(false); }}
+                  style={filterBtnStyle(violationFilter === "open")}
+                >
+                  Open ({openViolations.length})
+                </button>
+                <button
+                  onClick={() => { setViolationFilter("resolved"); setShowAllViolations(false); }}
+                  style={filterBtnStyle(violationFilter === "resolved")}
+                >
+                  Resolved ({resolvedViolations.length})
+                </button>
+              </div>
+            )}
+          </div>
           {dataLoading ? (
             <p style={{ fontSize: 14, color: "#57606a" }}>Loading violations...</p>
-          ) : violations.length === 0 ? (
+          ) : filteredViolations.length === 0 ? (
             <p style={{ fontSize: 14, color: "#57606a" }}>
-              No building violations on record for this address.
+              {violations.length === 0
+                ? "No building violations on record for this address."
+                : `No ${violationFilter} violations found.`}
             </p>
           ) : (
             <>
-              {(showAllViolations ? violations : violations.slice(0, 10)).map((v, i, arr) => {
+              {(showAllViolations ? filteredViolations : filteredViolations.slice(0, 10)).map((v, i, arr) => {
                 const isOpen =
                   v.violation_status?.toUpperCase() !== "COMPLIANT" &&
                   v.violation_status?.toUpperCase() !== "COMPLIED";
@@ -515,12 +575,12 @@ export default function LandlordBuildingDetail() {
                   </div>
                 );
               })}
-              {violations.length > 10 && (
+              {filteredViolations.length > 10 && (
                 <button
                   onClick={() => setShowAllViolations((p) => !p)}
                   style={showMoreBtnStyle}
                 >
-                  {showAllViolations ? "Show less" : `Show all ${violations.length}`}
+                  {showAllViolations ? "Show less" : `Show all ${filteredViolations.length}`}
                 </button>
               )}
             </>
@@ -531,24 +591,24 @@ export default function LandlordBuildingDetail() {
         <div style={{ ...cardStyle, marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
             <h3 style={{ ...sectionHeadingStyle, marginBottom: 0 }}>
-              311 Complaints ({filteredComplaints.length})
+              311 Complaints ({statusFilteredComplaints.length})
             </h3>
             {complaints.length > 0 && (
               <div style={{ display: "flex", gap: 6 }}>
                 <button
-                  onClick={() => { setComplaintFilter("all"); setShowAllComplaints(false); }}
+                  onClick={() => { setComplaintFilter("all"); setComplaintStatusFilter("all"); setShowAllComplaints(false); }}
                   style={filterBtnStyle(complaintFilter === "all")}
                 >
                   All ({complaints.length})
                 </button>
                 <button
-                  onClick={() => { setComplaintFilter("building"); setShowAllComplaints(false); }}
+                  onClick={() => { setComplaintFilter("building"); setComplaintStatusFilter("all"); setShowAllComplaints(false); }}
                   style={filterBtnStyle(complaintFilter === "building")}
                 >
                   Building ({buildingComplaints.length})
                 </button>
                 <button
-                  onClick={() => { setComplaintFilter("street"); setShowAllComplaints(false); }}
+                  onClick={() => { setComplaintFilter("street"); setComplaintStatusFilter("all"); setShowAllComplaints(false); }}
                   style={filterBtnStyle(complaintFilter === "street")}
                 >
                   Street ({streetComplaints.length})
@@ -556,6 +616,28 @@ export default function LandlordBuildingDetail() {
               </div>
             )}
           </div>
+          {complaints.length > 0 && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <button
+                onClick={() => { setComplaintStatusFilter("all"); setShowAllComplaints(false); }}
+                style={filterBtnStyle(complaintStatusFilter === "all")}
+              >
+                All ({filteredComplaints.length})
+              </button>
+              <button
+                onClick={() => { setComplaintStatusFilter("open"); setShowAllComplaints(false); }}
+                style={filterBtnStyle(complaintStatusFilter === "open")}
+              >
+                Open ({openFilteredComplaints.length})
+              </button>
+              <button
+                onClick={() => { setComplaintStatusFilter("resolved"); setShowAllComplaints(false); }}
+                style={filterBtnStyle(complaintStatusFilter === "resolved")}
+              >
+                Resolved ({resolvedFilteredComplaints.length})
+              </button>
+            </div>
+          )}
           {complaintFilter !== "all" && (
             <div style={{ fontSize: 12, color: "#57606a", marginBottom: 12, padding: "8px 12px", background: "#f6f8fa", borderRadius: 6 }}>
               {complaintFilter === "building"
@@ -565,15 +647,15 @@ export default function LandlordBuildingDetail() {
           )}
           {dataLoading ? (
             <p style={{ fontSize: 14, color: "#57606a" }}>Loading complaints...</p>
-          ) : filteredComplaints.length === 0 ? (
+          ) : statusFilteredComplaints.length === 0 ? (
             <p style={{ fontSize: 14, color: "#57606a" }}>
               {complaints.length === 0
                 ? "No 311 complaints on record for this address."
-                : `No ${complaintFilter === "building" ? "building-related" : "street-level"} complaints found.`}
+                : `No matching complaints found.`}
             </p>
           ) : (
             <>
-              {(showAllComplaints ? filteredComplaints : filteredComplaints.slice(0, 10)).map((c, i, arr) => {
+              {(showAllComplaints ? statusFilteredComplaints : statusFilteredComplaints.slice(0, 10)).map((c, i, arr) => {
                 const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
                 const isBldg = isBuildingRelated(c.sr_type);
                 return (
@@ -643,12 +725,12 @@ export default function LandlordBuildingDetail() {
                   </div>
                 );
               })}
-              {filteredComplaints.length > 10 && (
+              {statusFilteredComplaints.length > 10 && (
                 <button
                   onClick={() => setShowAllComplaints((p) => !p)}
                   style={showMoreBtnStyle}
                 >
-                  {showAllComplaints ? "Show less" : `Show all ${filteredComplaints.length}`}
+                  {showAllComplaints ? "Show less" : `Show all ${statusFilteredComplaints.length}`}
                 </button>
               )}
             </>
