@@ -1352,6 +1352,10 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           <a
             href="/blog"
             style={{
+              padding: "7px 16px",
+              background: "#f6f8fa",
+              border: "1px solid #d0d7de",
+              borderRadius: 6,
               fontSize: 13,
               color: "#57606a",
               textDecoration: "none",
@@ -1363,13 +1367,17 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
           <a
             href="/landlord/dashboard"
             style={{
+              padding: "7px 16px",
+              background: "#f6f8fa",
+              border: "1px solid #d0d7de",
+              borderRadius: 6,
               fontSize: 13,
               color: "#57606a",
               textDecoration: "none",
               fontWeight: 600,
             }}
           >
-            For Landlords
+            Landlord Portal
           </a>
           {hasReviewed && (
             <span style={{ fontSize: 12, color: "#1a7f37", fontWeight: 600 }}>
