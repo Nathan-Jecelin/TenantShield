@@ -7,6 +7,7 @@ import {
   parseStreetAddress,
   generateAddressVariants,
 } from '@/lib/chicagoData';
+import { addressToSlug } from '@/lib/slugs';
 
 const BATCH_SIZE = 50;
 
@@ -163,7 +164,7 @@ function buildAlertEmail(
   newComplaints: number,
   siteUrl: string,
 ): string {
-  const addressSlug = encodeURIComponent(address);
+  const addressSlug = addressToSlug(address);
 
   let detailRows = '';
   if (newViolations > 0) {
