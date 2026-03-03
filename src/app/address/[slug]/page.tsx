@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { cache } from "react";
-import { slugToAddress } from "@/lib/slugs";
+import { slugToAddress, addressToSlug } from "@/lib/slugs";
 import {
   parseStreetAddress,
   generateAddressVariants,
@@ -18,6 +18,28 @@ import { NEIGHBORHOOD_DATA, type NeighborhoodInfo } from "@/lib/neighborhoodData
 import TenantShield from "@/components/TenantShield";
 
 export const revalidate = 3600; // ISR: revalidate every hour
+
+export async function generateStaticParams() {
+  const params = new URLSearchParams({
+    $select: "address, count(id) as violation_count",
+    $group: "address",
+    $order: "violation_count DESC",
+    $limit: "200",
+  });
+  try {
+    const res = await fetch(
+      `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`,
+      { next: { revalidate: 86400 } }
+    );
+    if (!res.ok) return [];
+    const rows: { address: string }[] = await res.json();
+    return rows
+      .filter((r) => r.address)
+      .map((r) => ({ slug: addressToSlug(r.address) }));
+  } catch {
+    return [];
+  }
+}
 
 interface PageProps {
   params: Promise<{ slug: string }>;

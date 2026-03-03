@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Image from "next/image";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
 import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, searchAddresses, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
@@ -433,11 +434,12 @@ function ReviewCard({ review }: { review: Review }) {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {review.avatar_url ? (
-              <img
+              <Image
                 src={review.avatar_url}
                 alt=""
                 width={avatarSize}
                 height={avatarSize}
+                unoptimized={review.avatar_url.includes("?t=")}
                 style={{ borderRadius: "50%", objectFit: "cover" }}
               />
             ) : (
@@ -4823,11 +4825,12 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             </h3>
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
               {profileForm.avatar_url ? (
-                <img
+                <Image
                   src={profileForm.avatar_url}
                   alt="Avatar preview"
                   width={48}
                   height={48}
+                  unoptimized={profileForm.avatar_url.includes("?t=")}
                   style={{ borderRadius: "50%", objectFit: "cover", border: "2px solid #e8ecf0" }}
                 />
               ) : (

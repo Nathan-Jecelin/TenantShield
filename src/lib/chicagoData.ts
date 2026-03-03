@@ -169,7 +169,8 @@ export async function fetchBuildingViolations(
     $select: VIOLATION_FIELDS,
   });
   const res = await fetch(
-    `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`
+    `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`,
+    { next: { revalidate: 86400 } }
   );
   if (!res.ok) throw new Error(`Violations API error: ${res.status}`);
   return res.json();
@@ -189,7 +190,8 @@ export async function fetchServiceRequests(
     $select: SR_FIELDS,
   });
   const res = await fetch(
-    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`
+    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`,
+    { next: { revalidate: 86400 } }
   );
   if (!res.ok) throw new Error(`311 API error: ${res.status}`);
   return res.json();
@@ -231,7 +233,8 @@ export async function fetchBuildingPermits(
   });
   try {
     const res = await fetch(
-      `https://data.cityofchicago.org/resource/ydr8-5enu.json?${params}`
+      `https://data.cityofchicago.org/resource/ydr8-5enu.json?${params}`,
+      { next: { revalidate: 86400 } }
     );
     if (!res.ok) return [];
     return res.json();
@@ -256,7 +259,8 @@ export async function searchAddresses(partial: string): Promise<string[]> {
   });
   try {
     const res = await fetch(
-      `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`
+      `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`,
+      { next: { revalidate: 3600 } }
     );
     if (!res.ok) return [];
     const rows: { address: string }[] = await res.json();
@@ -414,7 +418,8 @@ export async function fetchNeighborhoodData(
     $select: SR_FIELDS + ",community_area",
   });
   const res = await fetch(
-    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`
+    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`,
+    { next: { revalidate: 86400 } }
   );
   if (!res.ok) throw new Error(`311 API error: ${res.status}`);
   const complaints: (ServiceRequest & { community_area: string })[] = await res.json();
@@ -459,7 +464,8 @@ export async function fetchFullNeighborhoodData(
       $select: VIOLATION_FIELDS,
     });
     const vRes = await fetch(
-      `https://data.cityofchicago.org/resource/22u3-xenr.json?${vParams}`
+      `https://data.cityofchicago.org/resource/22u3-xenr.json?${vParams}`,
+      { next: { revalidate: 86400 } }
     );
     if (vRes.ok) {
       violations = await vRes.json();
@@ -531,7 +537,8 @@ export async function fetchNearbyAddresses(
     $order: "created_date DESC",
   });
   const res = await fetch(
-    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`
+    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`,
+    { next: { revalidate: 86400 } }
   );
   if (!res.ok) return [];
   const rows: { street_address?: string }[] = await res.json();
@@ -569,7 +576,8 @@ export async function fetchCommunityAreaForAddress(
   });
   try {
     const res = await fetch(
-      `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`
+      `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`,
+      { next: { revalidate: 86400 } }
     );
     if (!res.ok) return null;
     const rows: { community_area?: string }[] = await res.json();
