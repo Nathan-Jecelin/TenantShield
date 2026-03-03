@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useId } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSupabase } from "@/lib/supabase";
 
@@ -56,12 +56,18 @@ function LineChart({
   width = 600,
   height = 200,
   color = "#1a7f37",
+  interactive = true,
 }: {
   data: { label: string; value: number }[];
   width?: number;
   height?: number;
   color?: string;
+  interactive?: boolean;
 }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const uid = useId().replace(/:/g, "");
+
   if (data.length === 0) return <div style={{ color: "#8b949e", fontSize: 13, padding: 16 }}>No data yet</div>;
 
   const maxVal = Math.max(...data.map((d) => d.value), 1);
@@ -95,10 +101,49 @@ function LineChart({
     xLabels.push({ x: points[idx].x, label: data[idx].label });
   }
 
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (!interactive || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * width;
+    let closest = 0;
+    let closestDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const dist = Math.abs(points[i].x - svgX);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = i;
+      }
+    }
+    setHoveredIdx(closest);
+  }
+
+  const hp = hoveredIdx !== null ? points[hoveredIdx] : null;
+
+  // Tooltip positioning
+  const boxW = 110;
+  const boxH = 40;
+  let tooltipBx = 0;
+  if (hp) {
+    if (hp.x < padLeft + 60) {
+      tooltipBx = hp.x - 4;
+    } else if (hp.x > width - padRight - 60) {
+      tooltipBx = hp.x + 4 - boxW;
+    } else {
+      tooltipBx = hp.x - boxW / 2;
+    }
+  }
+
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
+    <svg
+      ref={svgRef}
+      width="100%"
+      viewBox={`0 0 ${width} ${height}`}
+      style={{ display: "block", cursor: interactive ? "crosshair" : undefined }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setHoveredIdx(null)}
+    >
       <defs>
-        <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={`areaFill-${uid}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.15" />
           <stop offset="100%" stopColor={color} stopOpacity="0.02" />
         </linearGradient>
@@ -120,20 +165,51 @@ function LineChart({
         </text>
       ))}
       {/* Area */}
-      <path d={areaPath} fill="url(#areaFill)" />
+      <path d={areaPath} fill={`url(#areaFill-${uid})`} />
       {/* Line */}
       <polyline points={polyline} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
       {/* Dots */}
       {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#fff" stroke={color} strokeWidth="2">
-          <title>{`${p.label}: ${p.value}`}</title>
-        </circle>
+        <circle
+          key={i}
+          cx={p.x}
+          cy={p.y}
+          r={hoveredIdx === i ? 5 : 3}
+          fill={hoveredIdx === i ? color : "#fff"}
+          stroke={color}
+          strokeWidth="2"
+        />
       ))}
+      {/* Crosshair + Tooltip */}
+      {hp && (
+        <>
+          <line
+            x1={hp.x}
+            y1={padTop}
+            x2={hp.x}
+            y2={padTop + chartH}
+            stroke={color}
+            strokeWidth="1"
+            strokeDasharray="4 3"
+            opacity="0.5"
+          />
+          <g style={{ pointerEvents: "none" }}>
+            <rect x={tooltipBx} y={Math.max(2, hp.y - boxH - 12)} width={boxW} height={boxH} rx="6" fill="#24292f" opacity="0.92" />
+            <text x={tooltipBx + boxW / 2} y={Math.max(2, hp.y - boxH - 12) + 16} textAnchor="middle" fontSize="11" fill="#fff" fontWeight="600">
+              {hp.label}
+            </text>
+            <text x={tooltipBx + boxW / 2} y={Math.max(2, hp.y - boxH - 12) + 31} textAnchor="middle" fontSize="11" fill="#8b949e">
+              {hp.value.toLocaleString()} views
+            </text>
+          </g>
+        </>
+      )}
     </svg>
   );
 }
 
 function Sparkline({ data, width = 80, height = 24 }: { data: number[]; width?: number; height?: number }) {
+  const [hovered, setHovered] = useState(false);
   if (data.length < 2) return null;
   const max = Math.max(...data, 1);
   const trending = data[data.length - 1] >= data[0];
@@ -147,7 +223,19 @@ function Sparkline({ data, width = 80, height = 24 }: { data: number[]; width?: 
     .join(" ");
 
   return (
-    <svg width={width} height={height} style={{ display: "inline-block", verticalAlign: "middle" }}>
+    <svg
+      width={width}
+      height={height}
+      style={{
+        display: "inline-block",
+        verticalAlign: "middle",
+        transition: "transform 0.2s ease",
+        transform: hovered ? "scale(1.5)" : "scale(1)",
+        transformOrigin: "center",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
   );
@@ -165,6 +253,8 @@ export default function SearchAnalytics() {
   const [modal, setModal] = useState<BuildingDetail | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [exportingCSV, setExportingCSV] = useState(false);
+  const [chartRange, setChartRange] = useState<"7d" | "14d" | "30d">("30d");
+  const [chartFade, setChartFade] = useState(true);
 
   const isAdmin =
     !auth.loading && !!(auth.user?.email && ADMIN_EMAILS.has(auth.user.email));
@@ -244,6 +334,16 @@ export default function SearchAnalytics() {
     setExportingCSV(false);
   }
 
+  /* ---- Chart range toggle ---- */
+  function handleRangeChange(range: "7d" | "14d" | "30d") {
+    if (range === chartRange) return;
+    setChartFade(false);
+    setTimeout(() => {
+      setChartRange(range);
+      setChartFade(true);
+    }, 150);
+  }
+
   /* ---- Render ---- */
 
   if (auth.loading || loading) {
@@ -272,6 +372,10 @@ export default function SearchAnalytics() {
   }
 
   const topList = tab === "week" ? data.topWeek : data.topMonth;
+
+  const rangeDays = chartRange === "7d" ? 7 : chartRange === "14d" ? 14 : 30;
+  const chartData = data.dailyVolume.slice(-rangeDays);
+  const rangeLabel = chartRange === "7d" ? "7 Days" : chartRange === "14d" ? "14 Days" : "30 Days";
 
   // Format date for chart labels: "Mar 2"
   const formatDate = (d: string) => {
@@ -330,13 +434,37 @@ export default function SearchAnalytics() {
         ))}
       </div>
 
-      {/* 30-day line chart */}
+      {/* Daily line chart with range toggle */}
       <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: 20, marginBottom: 24 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, color: "#24292f", margin: "0 0 16px" }}>Daily Views (Last 30 Days)</h2>
-        <LineChart
-          data={data.dailyVolume.map((d) => ({ label: formatDate(d.date), value: d.count }))}
-          color="#1f6feb"
-        />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#24292f", margin: 0 }}>Daily Views (Last {rangeLabel})</h2>
+          <div style={{ display: "flex", gap: 4 }}>
+            {(["7d", "14d", "30d"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => handleRangeChange(r)}
+                style={{
+                  padding: "4px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: "1px solid #d0d7de",
+                  borderRadius: 6,
+                  background: chartRange === r ? "#0969da" : "#f6f8fa",
+                  color: chartRange === r ? "#fff" : "#24292f",
+                  cursor: "pointer",
+                }}
+              >
+                {r.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ opacity: chartFade ? 1 : 0, transition: "opacity 0.15s ease" }}>
+          <LineChart
+            data={chartData.map((d) => ({ label: formatDate(d.date), value: d.count }))}
+            color="#1f6feb"
+          />
+        </div>
       </div>
 
       {/* Top buildings table */}
