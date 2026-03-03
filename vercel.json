@@ -11,6 +11,10 @@
     {
       "path": "/api/landlord-alerts/check",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/analytics/aggregate",
+      "schedule": "0 6 * * *"
     }
   ]
 }

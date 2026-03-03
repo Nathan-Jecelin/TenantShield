@@ -48,3 +48,30 @@ export function trackEvent(
     })
     .then(() => {});
 }
+
+/** Fire-and-forget address view tracking via sendBeacon / fetch keepalive */
+export function trackAddressView(
+  address: string,
+  source: "page_view" | "search" = "page_view"
+) {
+  if (typeof window === "undefined") return;
+
+  const sessionId = getSessionId();
+  const payload = JSON.stringify({ address, sessionId, source });
+
+  const sent =
+    typeof navigator.sendBeacon === "function" &&
+    navigator.sendBeacon(
+      "/api/track-view",
+      new Blob([payload], { type: "application/json" })
+    );
+
+  if (!sent) {
+    fetch("/api/track-view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true,
+    }).catch(() => {});
+  }
+}

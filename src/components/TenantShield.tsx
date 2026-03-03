@@ -7,7 +7,7 @@ import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData"
 import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, searchAddresses, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
 import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent, trackAddressView } from "@/lib/analytics";
 import { addressToSlug } from "@/lib/slugs";
 import NewsletterSignup from "@/components/NewsletterSignup";
 import type { NeighborhoodInfo } from "@/lib/neighborhoodData";
@@ -888,8 +888,12 @@ export default function TenantShield({ initialView, initialAddress, initialData,
     if (view === "home" || view === "login" || view === "signup") return;
     const data: Record<string, unknown> = { view };
     if (view === "profile" && selected) data.landlord = selected.slug;
+    if (view === "address-profile" && addressResult) {
+      data.address = addressResult.address;
+      trackAddressView(addressResult.address, "page_view");
+    }
     trackEvent("page_view", data, auth.user?.id);
-  }, [view, selected, auth.user?.id]);
+  }, [view, selected, addressResult, auth.user?.id]);
 
   // Fetch building claim info for address profile
   useEffect(() => {
@@ -1248,6 +1252,11 @@ export default function TenantShield({ initialView, initialAddress, initialData,
         isNeighborhood: neighborhoodMatch,
         searchType,
       }, auth.user?.id);
+
+      // Track address view from search
+      if (addressResultData) {
+        trackAddressView(addressResultData.address, "search");
+      }
 
       setLoading(false);
       setView("results");
@@ -5064,6 +5073,24 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             }}
           >
             Review Building Claims →
+          </a>
+          <a
+            href="/admin/analytics"
+            style={{
+              display: "inline-block",
+              padding: "8px 16px",
+              background: "#e6f4ea",
+              border: "1px solid #a8dab5",
+              borderRadius: 6,
+              color: "#1a7f37",
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+              marginBottom: 24,
+              marginLeft: 8,
+            }}
+          >
+            Search Analytics →
           </a>
 
           {adminLoading || !adminData ? (
