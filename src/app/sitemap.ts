@@ -1,5 +1,19 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { NEIGHBORHOOD_DATA } from "@/lib/neighborhoodData";
+import { neighborhoodNameToSlug } from "@/lib/chicagoData";
+
+const BASE_URL = "https://mytenantshield.com";
+const URLS_PER_SITEMAP = 50_000;
+
+// 6 chunks: 0 = non-address pages, 1-5 = up to 250K addresses.
+// Empty chunks produce a valid <urlset> with 0 URLs (Google ignores them).
+const SITEMAP_CHUNKS = 6;
+
+// ISR: rebuild sitemaps daily
+export const revalidate = 86400;
+
+// ─── Helpers ───
 
 function getServerSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,75 +29,83 @@ function addressToSlug(address: string): string {
     .replace(/^-|-$/g, "");
 }
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = "https://mytenantshield.com";
+// ─── Data fetchers ───
 
-  // Static pages
+/**
+ * Fetch one page of unique addresses from the Chicago Building Violations API.
+ * Uses $group to get distinct addresses + most recent violation date.
+ * Each call fetches up to 50K addresses (one Socrata request).
+ */
+async function fetchAddressChunk(
+  offset: number,
+  limit: number
+): Promise<MetadataRoute.Sitemap> {
+  const params = new URLSearchParams({
+    $select: "address, max(violation_date) as last_mod",
+    $group: "address",
+    $order: "address",
+    $limit: String(limit),
+    $offset: String(offset),
+  });
+
+  try {
+    const res = await fetch(
+      `https://data.cityofchicago.org/resource/22u3-xenr.json?${params}`,
+      { next: { revalidate: 86400 } }
+    );
+    if (!res.ok) return [];
+    const rows: { address: string; last_mod?: string }[] = await res.json();
+    if (!Array.isArray(rows)) return [];
+
+    const seen = new Set<string>();
+    const entries: MetadataRoute.Sitemap = [];
+    for (const row of rows) {
+      if (!row.address) continue;
+      const slug = addressToSlug(row.address);
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      entries.push({
+        url: `${BASE_URL}/address/${slug}`,
+        lastModified: row.last_mod ? new Date(row.last_mod) : new Date(),
+        changeFrequency: "weekly",
+        priority: 0.7,
+      });
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+/** Non-address pages: static, neighborhoods, blog posts. */
+async function getNonAddressPages(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
-    {
-      url: baseUrl,
-      lastModified: new Date(),
-      changeFrequency: "daily",
-      priority: 1.0,
-    },
-    {
-      url: `${baseUrl}/blog`,
-      lastModified: new Date(),
-      changeFrequency: "weekly",
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/privacy`,
-      lastModified: new Date("2026-02-01"),
-      changeFrequency: "yearly",
-      priority: 0.3,
-    },
-    {
-      url: `${baseUrl}/terms`,
-      lastModified: new Date("2026-02-01"),
-      changeFrequency: "yearly",
-      priority: 0.3,
-    },
+    { url: BASE_URL, lastModified: new Date(), changeFrequency: "daily", priority: 1.0 },
+    { url: `${BASE_URL}/blog`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.8 },
+    { url: `${BASE_URL}/privacy`, lastModified: new Date("2026-02-01"), changeFrequency: "yearly", priority: 0.3 },
+    { url: `${BASE_URL}/terms`, lastModified: new Date("2026-02-01"), changeFrequency: "yearly", priority: 0.3 },
   ];
 
-  // Dynamic pages from Supabase
-  let addressPages: MetadataRoute.Sitemap = [];
-  let blogPages: MetadataRoute.Sitemap = [];
+  const neighborhoodPages: MetadataRoute.Sitemap = [
+    { url: `${BASE_URL}/neighborhoods`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
+    ...Object.values(NEIGHBORHOOD_DATA).map((info) => ({
+      url: `${BASE_URL}/neighborhoods/${neighborhoodNameToSlug(info.name)}`,
+      lastModified: new Date(),
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    })),
+  ];
 
+  let blogPages: MetadataRoute.Sitemap = [];
   const sb = getServerSupabase();
   if (sb) {
-    // Fetch all addresses from the database
-    const { data: addresses } = await sb
-      .from("addresses")
-      .select("address, updated_at");
-
-    if (addresses && addresses.length > 0) {
-      // Deduplicate by slug (same address can appear multiple times)
-      const seen = new Set<string>();
-      addressPages = addresses
-        .map((a) => {
-          const slug = addressToSlug(a.address);
-          if (seen.has(slug)) return null;
-          seen.add(slug);
-          return {
-            url: `${baseUrl}/address/${slug}`,
-            lastModified: a.updated_at ? new Date(a.updated_at) : new Date(),
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null);
-    }
-
-    // Fetch all published blog posts
     const { data: posts } = await sb
       .from("blog_posts")
       .select("slug, updated_at")
       .eq("published", true);
-
-    if (posts && posts.length > 0) {
+    if (posts) {
       blogPages = posts.map((p) => ({
-        url: `${baseUrl}/blog/${p.slug}`,
+        url: `${BASE_URL}/blog/${p.slug}`,
         lastModified: p.updated_at ? new Date(p.updated_at) : new Date(),
         changeFrequency: "monthly" as const,
         priority: 0.6,
@@ -91,21 +113,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
-  // Fallback well-known addresses if database is empty or unavailable
-  if (addressPages.length === 0) {
-    const fallbackAddresses = [
-      "1550-n-lake-shore-dr",
-      "1130-s-michigan-ave",
-      "1401-w-division-st",
-      "6217-s-dorchester-ave",
-    ];
-    addressPages = fallbackAddresses.map((slug) => ({
-      url: `${baseUrl}/address/${slug}`,
-      lastModified: new Date(),
-      changeFrequency: "weekly" as const,
-      priority: 0.7,
-    }));
+  return [...staticPages, ...neighborhoodPages, ...blogPages];
+}
+
+// ─── Sitemap index ───
+
+export async function generateSitemaps() {
+  // Fixed chunk count — no API calls needed here.
+  // Chunk 0 = non-address pages, chunks 1-5 = 50K addresses each.
+  return Array.from({ length: SITEMAP_CHUNKS }, (_, i) => ({ id: i }));
+}
+
+export default async function sitemap(
+  props: { id: number } | Promise<{ id: number }>
+): Promise<MetadataRoute.Sitemap> {
+  // In Next.js 16, props.id is a Promise
+  const id = Number(await Promise.resolve((props as { id: number | Promise<number> }).id));
+
+  // Chunk 0: non-address pages only
+  if (id === 0) {
+    return getNonAddressPages();
   }
 
-  return [...staticPages, ...blogPages, ...addressPages];
+  // Chunks 1+: address pages, 50K per chunk
+  const addressOffset = (id - 1) * URLS_PER_SITEMAP;
+  return fetchAddressChunk(addressOffset, URLS_PER_SITEMAP);
 }

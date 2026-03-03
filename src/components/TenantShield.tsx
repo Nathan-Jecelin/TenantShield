@@ -9,6 +9,7 @@ import CityRecords from "@/components/CityRecords";
 import { trackEvent } from "@/lib/analytics";
 import { addressToSlug } from "@/lib/slugs";
 import NewsletterSignup from "@/components/NewsletterSignup";
+import type { NeighborhoodInfo } from "@/lib/neighborhoodData";
 
 // ─── TYPES ───
 
@@ -609,9 +610,18 @@ function ShareButtons({ address, slug }: { address: string; slug: string }) {
 interface TenantShieldProps {
   initialView?: string;
   initialAddress?: string;
+  initialData?: {
+    address: string;
+    violations: BuildingViolation[];
+    complaints: ServiceRequest[];
+    permits?: BuildingPermit[];
+  } | null;
+  neighborhood?: string | null;
+  neighborhoodInfo?: NeighborhoodInfo | null;
+  nearbyBuildings?: { address: string; complaintCount: number }[];
 }
 
-export default function TenantShield({ initialView, initialAddress }: TenantShieldProps = {}) {
+export default function TenantShield({ initialView, initialAddress, initialData, neighborhood, neighborhoodInfo, nearbyBuildings }: TenantShieldProps = {}) {
   const [view, setView] = useState(initialView || "home");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Landlord[]>([]);
@@ -648,7 +658,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     violations: BuildingViolation[];
     complaints: ServiceRequest[];
     permits?: BuildingPermit[];
-  } | null>(null);
+  } | null>(initialData ?? null);
   const [addressResults, setAddressResults] = useState<{
     address: string;
     violations: BuildingViolation[];
@@ -820,7 +830,9 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
   }, []);
 
   // Load initial address data when rendered from /address/[slug] route
+  // Skip if initialData was provided from server-side rendering
   useEffect(() => {
+    if (initialData) return; // Data already loaded server-side
     if (!initialAddress || !initialView || initialView !== "address-profile") return;
     if (initialAddressLoaded.current) return;
     initialAddressLoaded.current = true;
@@ -839,7 +851,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         setAddressResult({ address: initialAddress, violations: [], complaints: [], permits: [] });
       })
       .finally(() => setLoading(false));
-  }, [initialAddress, initialView]);
+  }, [initialAddress, initialView, initialData]);
 
   // Update browser URL when navigating to address-profile within the SPA
   useEffect(() => {
@@ -1498,7 +1510,7 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
     boxSizing: "border-box",
   };
 
-  if (auth.loading) {
+  if (auth.loading && !initialData) {
     return (
       <div
         style={{
@@ -3026,6 +3038,23 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
         });
         return (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 20px" }}>
+          {/* Breadcrumbs */}
+          <nav aria-label="Breadcrumb" style={{ marginBottom: 16, fontSize: 13, color: "#57606a" }}>
+            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+              <li><a href="/" style={{ color: "#1f6feb", textDecoration: "none" }}>Home</a></li>
+              <li style={{ color: "#8b949e" }}>/</li>
+              <li>Chicago</li>
+              {neighborhood && (
+                <>
+                  <li style={{ color: "#8b949e" }}>/</li>
+                  <li>{neighborhood}</li>
+                </>
+              )}
+              <li style={{ color: "#8b949e" }}>/</li>
+              <li style={{ color: "#1f2328", fontWeight: 600 }}>{addressResult.address}</li>
+            </ol>
+          </nav>
+
           {/* Header */}
           <div
             style={{
@@ -3084,6 +3113,121 @@ export default function TenantShield({ initialView, initialAddress }: TenantShie
               </div>
             </div>
           </div>
+
+          {/* ─── ABOUT THIS BUILDING ─── */}
+          <div style={{
+            border: "1px solid #e8ecf0",
+            borderRadius: 8,
+            background: "#fff",
+            padding: "20px 28px",
+            marginBottom: 16,
+          }}>
+            <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              About This Building
+            </h2>
+            <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: 0 }}>
+              {addressResult.address} is located in {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL.
+              {claimInfo?.company_name ? ` This building is managed by ${claimInfo.company_name}.` : ""}
+              {" "}City of Chicago records show{" "}
+              {addressResult.violations.length === 0 && addressResult.complaints.length === 0
+                ? "no building violations or 311 complaints on file"
+                : `${addressResult.violations.length} building violation${addressResult.violations.length !== 1 ? "s" : ""} and ${addressResult.complaints.length} 311 complaint${addressResult.complaints.length !== 1 ? "s" : ""}`
+              }.
+              {addressResult.violations.length > 0 && (() => {
+                const sorted = [...addressResult.violations].sort((a, b) =>
+                  new Date(b.violation_date).getTime() - new Date(a.violation_date).getTime()
+                );
+                const latest = new Date(sorted[0].violation_date);
+                return ` The most recent violation was recorded in ${latest.toLocaleDateString("en-US", { month: "long", year: "numeric" })}.`;
+              })()}
+            </p>
+          </div>
+
+          {/* ─── NEIGHBORHOOD OVERVIEW ─── */}
+          {neighborhoodInfo && (
+            <div style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+              marginBottom: 16,
+            }}>
+              <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Neighborhood Overview — {neighborhoodInfo.name}
+              </h2>
+              <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: "0 0 16px" }}>
+                {neighborhoodInfo.description}
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
+                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>VIBE</div>
+                  <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.vibe}</div>
+                </div>
+                <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
+                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>TRANSIT</div>
+                  <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.transitAccess}</div>
+                </div>
+                <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
+                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>RENT RANGE</div>
+                  <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.rentRange}</div>
+                </div>
+              </div>
+              {neighborhoodInfo.notableFeatures.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, color: "#8b949e", fontWeight: 600, marginBottom: 6 }}>NOTABLE FEATURES</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {neighborhoodInfo.notableFeatures.map((f) => (
+                      <span key={f} style={{ padding: "4px 10px", background: "#ddf4ff", borderRadius: 12, fontSize: 12, color: "#0969da" }}>
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── NEARBY BUILDINGS ─── */}
+          {nearbyBuildings && nearbyBuildings.length > 0 && neighborhood && (
+            <div style={{
+              border: "1px solid #e8ecf0",
+              borderRadius: 8,
+              background: "#fff",
+              padding: "20px 28px",
+              marginBottom: 16,
+            }}>
+              <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Nearby Buildings in {neighborhood}
+              </h2>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+                {nearbyBuildings.map((b) => (
+                  <a
+                    key={b.address}
+                    href={`/address/${addressToSlug(b.address)}`}
+                    style={{
+                      display: "block",
+                      padding: "12px 14px",
+                      background: "#f6f8fa",
+                      borderRadius: 6,
+                      textDecoration: "none",
+                      color: "#1f2328",
+                      border: "1px solid transparent",
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#0969da")}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "transparent")}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#0969da", marginBottom: 4 }}>
+                      {b.address}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#8b949e" }}>
+                      {b.complaintCount} complaint{b.complaintCount !== 1 ? "s" : ""}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isCleanRecord ? (
             /* ─── CLEAN RECORD CARD ─── */

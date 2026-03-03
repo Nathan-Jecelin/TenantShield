@@ -32,6 +32,7 @@ export interface ServiceRequest {
   ward: string;
   zip_code: string;
   street_address: string;
+  community_area?: string;
 }
 
 export interface BuildingPermit {
@@ -491,4 +492,93 @@ export async function fetchFullNeighborhoodData(
     recentComplaints: complaints.slice(0, 50),
     recentViolations: violations.slice(0, 50),
   };
+}
+
+// ─── REVERSE COMMUNITY AREA LOOKUP ───
+
+// Build reverse map: community area ID → canonical name
+const COMMUNITY_AREA_ID_TO_NAME: Record<string, string> = {};
+for (const entry of Object.values(NEIGHBORHOOD_TO_COMMUNITY_AREA)) {
+  if (!COMMUNITY_AREA_ID_TO_NAME[entry.id]) {
+    COMMUNITY_AREA_ID_TO_NAME[entry.id] = entry.name;
+  }
+}
+
+// Slug helpers for neighborhood pages
+export function neighborhoodNameToSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+// Reverse map: slug → community area ID (canonical names only, no aliases)
+export const NEIGHBORHOOD_SLUG_TO_ID: Record<string, string> = {};
+for (const [id, name] of Object.entries(COMMUNITY_AREA_ID_TO_NAME)) {
+  NEIGHBORHOOD_SLUG_TO_ID[neighborhoodNameToSlug(name)] = id;
+}
+
+/**
+ * Fetch nearby building addresses in the same community area.
+ * Lightweight query — only fetches 311 complaints for address discovery.
+ */
+export async function fetchNearbyAddresses(
+  communityAreaId: string,
+  excludeAddress: string,
+  limit = 8
+): Promise<{ address: string; complaintCount: number }[]> {
+  const params = new URLSearchParams({
+    $where: `community_area='${communityAreaId}'`,
+    $select: "street_address",
+    $limit: "500",
+    $order: "created_date DESC",
+  });
+  const res = await fetch(
+    `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`
+  );
+  if (!res.ok) return [];
+  const rows: { street_address?: string }[] = await res.json();
+
+  // Aggregate unique addresses by complaint count
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.street_address) {
+      counts[r.street_address] = (counts[r.street_address] || 0) + 1;
+    }
+  }
+
+  // Exclude the current building's address (normalize for comparison)
+  const excludeUpper = excludeAddress.toUpperCase().trim();
+  return Object.entries(counts)
+    .filter(([addr]) => addr.toUpperCase().trim() !== excludeUpper)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([address, complaintCount]) => ({ address, complaintCount }));
+}
+
+/**
+ * Fetch the community area for a given address by querying the 311 API.
+ * Returns the community area ID and neighborhood name, or null on failure.
+ */
+export async function fetchCommunityAreaForAddress(
+  variants: string[]
+): Promise<{ communityAreaId: string; neighborhoodName: string } | null> {
+  if (variants.length === 0) return null;
+  const where = buildOrClause("street_address", variants);
+  const params = new URLSearchParams({
+    $where: where,
+    $select: "community_area",
+    $limit: "1",
+  });
+  try {
+    const res = await fetch(
+      `https://data.cityofchicago.org/resource/v6vf-nfxy.json?${params}`
+    );
+    if (!res.ok) return null;
+    const rows: { community_area?: string }[] = await res.json();
+    if (rows.length === 0 || !rows[0].community_area) return null;
+    const id = rows[0].community_area;
+    const name = COMMUNITY_AREA_ID_TO_NAME[id];
+    if (!name) return null;
+    return { communityAreaId: id, neighborhoodName: name };
+  } catch {
+    return null;
+  }
 }
