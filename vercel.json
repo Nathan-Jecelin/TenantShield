@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/sitemap/:id.xml",
+      "destination": "/api/sitemap/:id"
+    }
+  ],
   "crons": [
     {
       "path": "/api/newsletter/send",
