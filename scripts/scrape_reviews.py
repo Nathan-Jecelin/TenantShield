@@ -223,60 +223,130 @@ def _normalize_comment(item: dict) -> dict:
 # ── Google Places (optional) ──────────────────────────────────────────────
 
 
+def _google_places_post(url: str, body: dict, label: str = "") -> dict | None:
+    """POST to Google Places API (New) with retry + rate-limit delay."""
+    time.sleep(API_DELAY)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+    }
+    for attempt in range(3):
+        try:
+            r = requests.post(url, json=body, headers=headers, timeout=30)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 429:
+                wait = 5 * (attempt + 1)
+                log(f"  Rate-limited on {label}, waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            log(f"  {label} returned {r.status_code}: {r.text[:200]}")
+            return None
+        except requests.RequestException as e:
+            log(f"  {label} error: {e}")
+            if attempt < 2:
+                time.sleep(3)
+    return None
+
+
+def _google_places_get(url: str, headers: dict, label: str = "") -> dict | None:
+    """GET from Google Places API (New) with retry + rate-limit delay."""
+    time.sleep(API_DELAY)
+    for attempt in range(3):
+        try:
+            r = requests.get(url, headers=headers, timeout=30)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 429:
+                wait = 5 * (attempt + 1)
+                log(f"  Rate-limited on {label}, waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            log(f"  {label} returned {r.status_code}: {r.text[:200]}")
+            return None
+        except requests.RequestException as e:
+            log(f"  {label} error: {e}")
+            if attempt < 2:
+                time.sleep(3)
+    return None
+
+
 def search_google_reviews(address: str, name: str) -> list[dict]:
-    """Fetch Google Places reviews if API key is set."""
+    """Fetch Google Places reviews using the Places API (New)."""
     if not GOOGLE_PLACES_KEY:
         return []
 
     search_text = f"{name} {address} Chicago IL" if name else f"{address} Chicago IL"
-    log(f"  Google Places: searching for {search_text!r}")
+    log(f"  Google Places (New): searching for {search_text!r}")
 
-    # Find place
-    find_url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-    data = api_get(
-        find_url,
-        {
-            "input": search_text,
-            "inputtype": "textquery",
-            "fields": "place_id,name",
-            "key": GOOGLE_PLACES_KEY,
-        },
-        "Google find_place",
-    )
-    if not data or not data.get("candidates"):
+    # Step 1: Text Search to find the place
+    search_url = "https://places.googleapis.com/v1/places:searchText"
+    search_body = {
+        "textQuery": search_text,
+        "maxResultCount": 1,
+    }
+    headers_search = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress",
+    }
+
+    time.sleep(API_DELAY)
+    try:
+        r = requests.post(search_url, json=search_body, headers=headers_search, timeout=30)
+        if r.status_code != 200:
+            log(f"  Google search returned {r.status_code}: {r.text[:200]}")
+            return []
+        search_data = r.json()
+    except requests.RequestException as e:
+        log(f"  Google search error: {e}")
         return []
 
-    place_id = data["candidates"][0]["place_id"]
+    places = search_data.get("places", [])
+    if not places:
+        log("  Google: no places found")
+        return []
 
-    # Get reviews
-    details_url = "https://maps.googleapis.com/maps/api/place/details/json"
-    data = api_get(
-        details_url,
-        {
-            "place_id": place_id,
-            "fields": "reviews",
-            "key": GOOGLE_PLACES_KEY,
-        },
-        "Google details",
-    )
-    if not data or "result" not in data:
+    place_id = places[0]["id"]
+    place_name = places[0].get("displayName", {}).get("text", "")
+    log(f"  Google: found '{place_name}' (id: {place_id})")
+
+    # Step 2: Get Place Details with reviews
+    details_url = f"https://places.googleapis.com/v1/places/{place_id}"
+    details_headers = {
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+        "X-Goog-FieldMask": "reviews",
+    }
+    details_data = _google_places_get(details_url, details_headers, "Google details")
+
+    if not details_data:
         return []
 
     results = []
-    for review in data["result"].get("reviews", []):
+    for review in details_data.get("reviews", []):
+        # Parse the publish time (ISO 8601 format in new API)
+        pub_time = review.get("publishTime", "")
+        date_str = ""
+        if pub_time:
+            try:
+                date_str = pub_time[:10]  # "2024-01-15T..." -> "2024-01-15"
+            except (ValueError, IndexError):
+                pass
+
+        body_text = review.get("text", {}).get("text", "") if isinstance(review.get("text"), dict) else review.get("text", "")
+
         results.append({
             "source": "google",
             "type": "review",
             "subreddit": "",
             "title": "",
-            "body": review.get("text", "")[:3000],
+            "body": body_text[:3000],
             "score": review.get("rating", 0),
-            "url": "",
-            "date": datetime.fromtimestamp(
-                review.get("time", 0), tz=timezone.utc
-            ).strftime("%Y-%m-%d") if review.get("time") else "",
-            "author": review.get("author_name", "Anonymous"),
+            "url": review.get("googleMapsUri", ""),
+            "date": date_str,
+            "author": review.get("authorAttribution", {}).get("displayName", "Anonymous"),
         })
+
     return results
 
 
