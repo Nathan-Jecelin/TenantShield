@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { rateLimit } from '@/lib/rate-limit';
 import {
   fetchBuildingViolations,
   fetchServiceRequests,
@@ -8,6 +9,11 @@ import {
 } from '@/lib/chicagoData';
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (!rateLimit(ip, 10)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   const supabase = getSupabaseServer();
   if (!supabase) {
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });

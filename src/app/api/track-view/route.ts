@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { rateLimit } from '@/lib/rate-limit';
 
 function normalizeAddress(raw: string): string {
   return raw
@@ -10,6 +11,11 @@ function normalizeAddress(raw: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (!rateLimit(ip, 60)) {
+    return new Response(null, { status: 429 });
+  }
+
   const supabase = getSupabaseServer();
   if (!supabase) {
     return new Response(null, { status: 204 });

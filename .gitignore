@@ -19,6 +19,9 @@ npm-debug.log*
 .env*.local
 .env.vercel-check
 
+# claude code (may contain secrets in permission rules)
+.claude/settings.local.json
+
 # vercel
 .vercel
 

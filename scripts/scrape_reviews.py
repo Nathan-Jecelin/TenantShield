@@ -64,6 +64,11 @@ GOOGLE_PLACES_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
+# ── Supabase config (optional — upload when env vars present) ─────────────
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
@@ -602,6 +607,77 @@ def save_csv(results: list[dict], path: str) -> None:
     log(f"Saved CSV: {path}")
 
 
+# ── Supabase upload ────────────────────────────────────────────────────────
+
+
+def upload_to_supabase(result: dict) -> bool:
+    """Upsert a building result into the community_reviews table via REST API.
+    Returns True on success, False on skip/failure."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+
+    address = result.get("address", "")
+    if not address:
+        return False
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+
+    row = {
+        "building_name": result.get("building_name", ""),
+        "management_company": result.get("management_company", ""),
+        "overall_sentiment": result.get("overall_sentiment", "Neutral"),
+        "overall_summary": result.get("overall_summary", ""),
+        "key_themes": result.get("key_themes", []),
+        "raw_review_count": result.get("raw_review_count", 0),
+        "relevant_review_count": result.get("relevant_review_count", 0),
+        "reports": result.get("reports", []),
+        "processed_at": result.get("processed_at", datetime.now(timezone.utc).isoformat()),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    base_url = f"{SUPABASE_URL}/rest/v1/community_reviews"
+    addr_upper = address.upper()
+
+    try:
+        # Check if row already exists (case-insensitive)
+        check = requests.get(
+            base_url,
+            headers=headers,
+            params={"address": f"ilike.{addr_upper}", "select": "id"},
+            timeout=15,
+        )
+        existing = check.json() if check.status_code == 200 else []
+
+        if existing:
+            # Update existing row
+            r = requests.patch(
+                base_url,
+                json=row,
+                headers=headers,
+                params={"address": f"ilike.{addr_upper}"},
+                timeout=15,
+            )
+        else:
+            # Insert new row
+            row["address"] = address
+            r = requests.post(base_url, json=row, headers=headers, timeout=15)
+
+        if r.status_code in (200, 201, 204):
+            log(f"  Supabase: {'updated' if existing else 'inserted'} review for {address}")
+            return True
+        else:
+            log(f"  Supabase: upload failed ({r.status_code}): {r.text[:200]}")
+            return False
+    except requests.RequestException as e:
+        log(f"  Supabase: upload error: {e}")
+        return False
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 
@@ -639,6 +715,11 @@ def main() -> None:
     if not ANTHROPIC_KEY:
         log("WARNING: ANTHROPIC_API_KEY not set. Analysis step will be skipped.")
 
+    if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+        log("Supabase upload enabled.")
+    else:
+        log("Supabase upload disabled (SUPABASE_URL / SUPABASE_SERVICE_KEY not set).")
+
     # Build list of buildings
     buildings: list[dict] = []
     if args.buildings:
@@ -671,6 +752,9 @@ def main() -> None:
         log(f"\n[{i}/{len(buildings)}] -------------------------------------")
         result = process_building(addr, b["name"], b["management"])
         results.append(result)
+
+        # Upload to Supabase (if configured)
+        upload_to_supabase(result)
 
         # Save progress after each building
         save_json(results, progress_path)

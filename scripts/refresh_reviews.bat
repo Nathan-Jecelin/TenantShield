@@ -9,9 +9,21 @@ set PYTHON=C:\Users\Nate\AppData\Local\Programs\Python\Python312\python.exe
 set SCRIPT_DIR=C:\Users\Nate\tenantshield\scripts
 set LOG=%SCRIPT_DIR%\refresh.log
 
+REM Supabase credentials (read from persistent Windows env vars)
+if defined SUPABASE_URL (
+    set SUPABASE_URL=%SUPABASE_URL%
+)
+if defined SUPABASE_SERVICE_KEY (
+    set SUPABASE_SERVICE_KEY=%SUPABASE_SERVICE_KEY%
+)
+
 echo ========================================== >> "%LOG%"
 echo TenantShield Review Refresh — %date% %time% >> "%LOG%"
 echo ========================================== >> "%LOG%"
+
+REM Regenerate buildings list from top viewed addresses
+echo Generating buildings list from analytics... >> "%LOG%"
+"%PYTHON%" "%SCRIPT_DIR%\generate_buildings_csv.py" --limit 50 --output "%SCRIPT_DIR%\sample_buildings.csv" >> "%LOG%" 2>&1
 
 REM Back up previous output
 if exist "%SCRIPT_DIR%\tenant_reviews_output.json" (

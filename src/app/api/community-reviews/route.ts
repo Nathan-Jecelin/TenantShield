@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });
   }
 
-  // Normalize: uppercase, strip city/state words, collapse spaces, prefix match
+  // Normalize: uppercase, strip city/state, collapse whitespace
   const street = address
     .toUpperCase()
     .split(',')[0]
@@ -27,43 +27,37 @@ export async function GET(req: NextRequest) {
     .trim();
 
   const { data, error } = await supabase
-    .from('claimed_buildings')
-    .select('claimant_role, verification_status, claimed_at, landlord_id')
-    .ilike('address', `${street}%`)
-    .in('verification_status', ['pending', 'approved'])
-    .order('claimed_at', { ascending: true })
+    .from('community_reviews')
+    .select('*')
+    .ilike('address', `%${street}%`)
+    .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) {
-    console.error('Building claim lookup error:', error);
+    console.error('Community reviews lookup error:', error);
     return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
   }
 
   if (!data) {
-    return NextResponse.json({ claim: null });
+    return NextResponse.json({ review: null });
   }
 
-  // Fetch company_name and plan from landlord_profiles
-  let companyName: string | null = null;
-  const { data: profile } = await supabase
-    .from('landlord_profiles')
-    .select('company_name, verified, plan')
-    .eq('id', data.landlord_id)
-    .single();
-
-  if (profile) {
-    companyName = profile.company_name;
+  // reports may be a JSON string if stored via REST API
+  let reports = data.reports ?? [];
+  if (typeof reports === 'string') {
+    try { reports = JSON.parse(reports); } catch { reports = []; }
   }
 
   return NextResponse.json({
-    claim: {
-      company_name: companyName,
-      claimant_role: data.claimant_role,
-      verification_status: data.verification_status,
-      claimed_at: data.claimed_at,
-      verified: profile?.verified ?? false,
-      plan: profile?.plan ?? 'free',
+    review: {
+      overall_sentiment: data.overall_sentiment,
+      overall_summary: data.overall_summary,
+      key_themes: data.key_themes ?? [],
+      raw_review_count: data.raw_review_count,
+      relevant_review_count: data.relevant_review_count,
+      reports,
+      processed_at: data.processed_at,
     },
   });
 }

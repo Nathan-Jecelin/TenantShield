@@ -643,6 +643,11 @@ export default function TenantShield({ initialView, initialAddress, initialData,
     text: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const [reviewGoodText, setReviewGoodText] = useState("");
+  const [reviewBadText, setReviewBadText] = useState("");
+  const [reviewDuration, setReviewDuration] = useState("");
+  const [reviewRecommend, setReviewRecommend] = useState<boolean | null>(null);
+  const [reviewHoneypot, setReviewHoneypot] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
   const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -671,6 +676,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [showAllProfileComplaints, setShowAllProfileComplaints] = useState(false);
   const [showAllProfilePermits, setShowAllProfilePermits] = useState(false);
   const [complaintFilter, setComplaintFilter] = useState<"all" | "building" | "street">("all");
+  const [activeTab, setActiveTab] = useState<"overview" | "violations" | "complaints" | "reviews" | "permits">("overview");
   const [watchEmail, setWatchEmail] = useState("");
   const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean; plan?: string } | null>(null);
@@ -681,6 +687,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
   const [showGiveawayBanner, setShowGiveawayBanner] = useState(true);
+  const [showReviewPrompt, setShowReviewPrompt] = useState(false);
   const [adminReviewPage, setAdminReviewPage] = useState(0);
   const initialAddressLoaded = useRef(false);
   const [adminData, setAdminData] = useState<{
@@ -697,6 +704,13 @@ export default function TenantShield({ initialView, initialAddress, initialData,
     activityFeed: { event_type: string; event_data: Record<string, unknown>; created_at: string }[];
   } | null>(null);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [flaggedReviews, setFlaggedReviews] = useState<{
+    id: string; author: string; rating: number; text: string; good_text: string | null;
+    bad_text: string | null; duration_lived: string | null; would_recommend: boolean | null;
+    flag_reason: string | null; moderation_status: string; created_at: string;
+    landlord_name: string | null;
+  }[]>([]);
+  const [flaggedLoading, setFlaggedLoading] = useState(false);
   const [blogPosts, setBlogPosts] = useState<{ id: string; slug: string; title: string; excerpt: string; content: string; published: boolean; created_at: string }[]>([]);
   const [blogEditing, setBlogEditing] = useState<string | null>(null); // post id or "new"
   const [blogForm, setBlogForm] = useState({ slug: "", title: "", excerpt: "", content: "", published: false });
@@ -707,6 +721,15 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [profileSaved, setProfileSaved] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [postAnonymously, setPostAnonymously] = useState(true);
+  const [communityReview, setCommunityReview] = useState<{
+    overall_sentiment: string;
+    overall_summary: string;
+    key_themes: string[];
+    raw_review_count: number;
+    relevant_review_count: number;
+    reports: { summary: string; source: string; date: string; sentiment: string }[];
+    processed_at: string;
+  } | null>(null);
 
   const auth = useAuth();
   const isAdmin = !!(auth.user?.email && ADMIN_EMAILS.has(auth.user.email));
@@ -868,12 +891,47 @@ export default function TenantShield({ initialView, initialAddress, initialData,
     }
   }, [view, addressResult, initialView]);
 
+  // Reset tab when address changes
+  useEffect(() => {
+    setActiveTab("overview");
+  }, [addressResult]);
+
+  // Smart review prompt: track building page views + time on page
+  // Uses sessionStorage so counts persist across full-page navigations
+  useEffect(() => {
+    if (view !== "address-profile" || !addressResult) return;
+    // Check cookie — if dismissed within 14 days, don't show
+    if (document.cookie.split("; ").some((c) => c === "ts_review_prompt_dismissed=1")) return;
+    // Only show once per session
+    if (sessionStorage.getItem("ts_review_prompt_shown")) return;
+
+    const count = (parseInt(sessionStorage.getItem("ts_building_views") || "0", 10)) + 1;
+    sessionStorage.setItem("ts_building_views", String(count));
+
+    // Trigger on 2+ building page views
+    if (count >= 2) {
+      sessionStorage.setItem("ts_review_prompt_shown", "1");
+      setShowReviewPrompt(true);
+      return;
+    }
+
+    // Trigger after 45 seconds on a building page
+    const timer = setTimeout(() => {
+      if (!sessionStorage.getItem("ts_review_prompt_shown")) {
+        sessionStorage.setItem("ts_review_prompt_shown", "1");
+        setShowReviewPrompt(true);
+      }
+    }, 45000);
+    return () => clearTimeout(timer);
+  }, [view, addressResult]);
+
   // Handle browser back/forward buttons
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (e.state?.view === "address-profile" && e.state?.address) {
-        // Navigate back to address profile from browser back
-        return; // Let the natural page navigation handle it
+        // Reload to get fresh SSR data for the previous address
+        window.location.reload();
+        return;
       }
       if (window.location.pathname === "/") {
         goHome();
@@ -906,6 +964,20 @@ export default function TenantShield({ initialView, initialAddress, initialData,
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setClaimInfo(d.claim ?? null); })
       .catch(() => { if (!cancelled) setClaimInfo(null); });
+    return () => { cancelled = true; };
+  }, [view, addressResult]);
+
+  // Fetch community reviews for address profile
+  useEffect(() => {
+    if (view !== "address-profile" || !addressResult) {
+      setCommunityReview(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/community-reviews?address=${encodeURIComponent(addressResult.address)}`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setCommunityReview(d.review ?? null); })
+      .catch(() => { if (!cancelled) setCommunityReview(null); });
     return () => { cancelled = true; };
   }, [view, addressResult]);
 
@@ -1063,9 +1135,53 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             setAdminUsers(data);
           }
         } catch { /* ignore */ }
+
+        // Load flagged reviews for moderation
+        fetchFlaggedReviews(token);
       }
     })();
   }, [view, isAdmin]);
+
+  async function fetchFlaggedReviews(token?: string) {
+    setFlaggedLoading(true);
+    try {
+      let authToken = token;
+      if (!authToken) {
+        const sb = getSupabase();
+        if (sb) {
+          const session = await sb.auth.getSession();
+          authToken = session.data.session?.access_token || undefined;
+        }
+      }
+      if (!authToken) return;
+      const res = await fetch("/api/reviews/moderate?status=pending", {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFlaggedReviews(data.reviews || []);
+      }
+    } catch { /* ignore */ }
+    setFlaggedLoading(false);
+  }
+
+  async function moderateReview(reviewId: string, action: "approve" | "reject") {
+    const sb = getSupabase();
+    if (!sb) return;
+    const session = await sb.auth.getSession();
+    const token = session.data.session?.access_token;
+    if (!token) return;
+    try {
+      const res = await fetch("/api/reviews/moderate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reviewId, action }),
+      });
+      if (res.ok) {
+        setFlaggedReviews((prev) => prev.filter((r) => r.id !== reviewId));
+      }
+    } catch { /* ignore */ }
+  }
 
   async function saveBlogPost() {
     const sb = getSupabase();
@@ -1361,11 +1477,6 @@ export default function TenantShield({ initialView, initialAddress, initialData,
 
   function goReview() {
     setShowGate(false);
-    if (!auth.user && isSupabaseConfigured()) {
-      setReturnView("review");
-      setView("login");
-      return;
-    }
     setForm({
       landlordName: "",
       address: "",
@@ -1376,6 +1487,11 @@ export default function TenantShield({ initialView, initialAddress, initialData,
       overall: 0,
       text: "",
     });
+    setReviewGoodText("");
+    setReviewBadText("");
+    setReviewDuration("");
+    setReviewRecommend(null);
+    setReviewHoneypot("");
     setSubmitted(false);
     setPostAnonymously(!userProfile?.display_name);
     setView("review");
@@ -1407,104 +1523,37 @@ export default function TenantShield({ initialView, initialAddress, initialData,
 
   async function submitReview(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.text || !form.landlordName || !form.overall) return;
+    if (!form.address || !form.overall) return;
 
-    let ex = landlords.find(
-      (ll) => ll.name.toLowerCase() === form.landlordName.toLowerCase()
-    );
-
-    if (isSupabaseConfigured()) {
-      setLoading(true);
-
-      // If landlord/company doesn't exist, create it so the review gets linked
-      if (!ex) {
-        const slug = form.landlordName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        const { data: newLandlord, error: createError } = await getSupabase()!
-          .from("landlords")
-          .insert({
-            slug,
-            name: form.landlordName.trim(),
-            neighborhood: "",
-            type: "Property Management Company",
-            violations: 0,
-            complaints: 0,
-            review_count: 0,
-            score_maintenance: 0,
-            score_communication: 0,
-            score_deposit: 0,
-            score_honesty: 0,
-            score_overall: 0,
-          })
-          .select()
-          .single();
-
-        if (!createError && newLandlord) {
-          // Link the review address to the new landlord
-          if (form.address) {
-            await getSupabase()!.from("addresses").insert({
-              landlord_id: newLandlord.id,
-              address: form.address.trim(),
-            });
-          }
-          // Create a temporary Landlord object so submitReviewToDb works
-          ex = {
-            id: newLandlord.id,
-            slug,
-            name: form.landlordName.trim(),
-            addresses: form.address ? [form.address.trim()] : [],
-            neighborhood: "",
-            type: "Property Management Company",
-            scores: { maintenance: 0, communication: 0, deposit: 0, honesty: 0, overall: 0 },
-            reviewCount: 0,
-            violations: 0,
-            complaints: 0,
-            reviews: [],
-          };
-        }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: form.address.trim(),
+          landlordName: form.landlordName.trim() || null,
+          rating: form.overall,
+          durationLived: reviewDuration || null,
+          wouldRecommend: reviewRecommend,
+          goodText: reviewGoodText.trim() || null,
+          badText: reviewBadText.trim() || null,
+          honeypot: reviewHoneypot,
+        }),
+      });
+      if (!res.ok) {
+        console.error("Review submit failed:", await res.text());
       }
-
-      if (ex) {
-        // If user provided an address and it's not already linked, add it
-        if (form.address && !ex.addresses.some((a) => a.toLowerCase() === form.address.toLowerCase())) {
-          await getSupabase()!.from("addresses").insert({
-            landlord_id: ex.id,
-            address: form.address.trim(),
-          });
-        }
-
-        const ok = await submitReviewToDb(ex.id, form, auth.user?.id, postAnonymously, userProfile?.display_name || undefined);
-        if (ok) {
-          const updated = await fetchAllLandlords();
-          if (updated.length > 0) setLandlords(updated);
-        }
-      }
-      setLoading(false);
-    } else if (ex) {
-      const nr: Review = {
-        id: "r-u-" + Date.now(),
-        author: (!postAnonymously && userProfile?.display_name) ? userProfile.display_name : "Anonymous Tenant",
-        date: formatDate(new Date().toISOString()),
-        rating: form.overall,
-        text: form.text,
-        helpful: 0,
-        anonymous: postAnonymously,
-        avatar_url: postAnonymously ? null : (userProfile?.avatar_url || null),
-      };
-      setLandlords((p) =>
-        p.map((ll) =>
-          ll.id === ex!.id
-            ? { ...ll, reviews: [nr, ...ll.reviews], reviewCount: ll.reviewCount + 1 }
-            : ll
-        )
-      );
+    } catch (err) {
+      console.error("Review submit error:", err);
     }
+    setLoading(false);
     setHasReviewed(true);
     setSubmitted(true);
     trackEvent("review_submit", {
-      landlord: form.landlordName,
+      landlord: form.landlordName || undefined,
       address: form.address || undefined,
       rating: form.overall,
-      isNewLandlord: !landlords.find((ll) => ll.name.toLowerCase() === form.landlordName.toLowerCase()),
     }, auth.user?.id);
   }
 
@@ -3047,6 +3096,27 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           cursor: "pointer",
           fontFamily: "inherit",
         });
+        const tabStyle = (active: boolean): React.CSSProperties => ({
+          padding: "10px 16px",
+          background: "transparent",
+          border: "none",
+          borderBottom: active ? "2px solid #1f6feb" : "2px solid transparent",
+          color: active ? "#1f2328" : "#57606a",
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        });
+        const switchTab = (tab: typeof activeTab) => {
+          setActiveTab(tab);
+          setShowAllProfileViolations(false);
+          setShowAllProfileComplaints(false);
+          setShowAllProfilePermits(false);
+          setComplaintFilter("all");
+        };
+        const reviewCount = communityReview?.relevant_review_count ?? 0;
         return (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 20px" }}>
           {/* Breadcrumbs */}
@@ -3066,7 +3136,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             </ol>
           </nav>
 
-          {/* Header */}
+          {/* ─── SUMMARY CARD ─── */}
           <div
             style={{
               border: "1px solid #e8ecf0",
@@ -3083,7 +3153,8 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                     {addressResult.address}
                   </h1>
                   <p style={{ fontSize: 14, color: "#57606a", margin: 0 }}>
-                    Chicago, IL · Public Records
+                    {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL · Public Records
+                    {claimInfo?.company_name ? ` · Managed by ${claimInfo.company_name}` : ""}
                   </p>
                 </div>
                 <div style={{
@@ -3109,11 +3180,13 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                   const vLen = addressResult.violations.length;
                   const cLen = addressResult.complaints.length;
                   const pLen = permits.length;
+                  const sentiment = communityReview?.overall_sentiment;
                   return [
                     [cLen, "311 Complaints", cLen > 10 ? "#cf222e" : cLen > 0 ? "#bc4c00" : "#1a7f37"],
                     [vLen, "Building Violations", vLen > 5 ? "#cf222e" : vLen > 0 ? "#bc4c00" : "#1a7f37"],
                     [pLen, "Building Permits", pLen > 0 ? "#1f6feb" : "#8b949e"],
-                    [0, "Tenant Reviews", "#8b949e"],
+                    [reviewCount, "Tenant Reviews", reviewCount > 0 ? "#1f6feb" : "#8b949e"],
+                    ...(sentiment ? [[sentiment, "Sentiment", sentiment === "Positive" ? "#1a7f37" : sentiment === "Negative" ? "#cf222e" : "#9a6700"] as const] : []),
                   ] as const;
                 })().map(([num, label, color]) => (
                   <div key={label} style={{ padding: 14, background: "#f6f8fa", borderRadius: 6, textAlign: "center" }}>
@@ -3125,80 +3198,880 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             </div>
           </div>
 
-          {/* ─── ABOUT THIS BUILDING ─── */}
-          <div style={{
-            border: "1px solid #e8ecf0",
-            borderRadius: 8,
-            background: "#fff",
-            padding: "20px 28px",
-            marginBottom: 16,
-          }}>
-            <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
-              About This Building
-            </h2>
-            <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: 0 }}>
-              {addressResult.address} is located in {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL.
-              {claimInfo?.company_name ? ` This building is managed by ${claimInfo.company_name}.` : ""}
-              {" "}City of Chicago records show{" "}
-              {addressResult.violations.length === 0 && addressResult.complaints.length === 0
-                ? "no building violations or 311 complaints on file"
-                : `${addressResult.violations.length} building violation${addressResult.violations.length !== 1 ? "s" : ""} and ${addressResult.complaints.length} 311 complaint${addressResult.complaints.length !== 1 ? "s" : ""}`
-              }.
-              {addressResult.violations.length > 0 && (() => {
-                const sorted = [...addressResult.violations].sort((a, b) =>
-                  new Date(b.violation_date).getTime() - new Date(a.violation_date).getTime()
-                );
-                const latest = new Date(sorted[0].violation_date);
-                return ` The most recent violation was recorded in ${latest.toLocaleDateString("en-US", { month: "long", year: "numeric" })}.`;
-              })()}
-            </p>
+          {/* Google Ads */}
+          <div style={{ textAlign: "center", marginBottom: 16 }}>
+            <ins className="adsbygoogle"
+              style={{ display: "block" }}
+              data-ad-client="ca-pub-1105551881353525"
+              data-ad-slot="auto"
+              data-ad-format="auto"
+              data-full-width-responsive="true" />
+            <script dangerouslySetInnerHTML={{ __html: "(adsbygoogle = window.adsbygoogle || []).push({});" }} />
           </div>
 
-          {/* ─── NEIGHBORHOOD OVERVIEW ─── */}
-          {neighborhoodInfo && (
-            <div style={{
-              border: "1px solid #e8ecf0",
-              borderRadius: 8,
-              background: "#fff",
-              padding: "20px 28px",
-              marginBottom: 16,
-            }}>
-              <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Neighborhood Overview — {neighborhoodInfo.name}
-              </h2>
-              <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: "0 0 16px" }}>
-                {neighborhoodInfo.description}
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-                <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
-                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>VIBE</div>
-                  <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.vibe}</div>
-                </div>
-                <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
-                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>TRANSIT</div>
-                  <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.transitAccess}</div>
-                </div>
-                <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
-                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>RENT RANGE</div>
-                  <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.rentRange}</div>
-                </div>
+          {/* ─── TAB BAR ─── */}
+          <div style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
+            background: "#fff",
+            borderBottom: "1px solid #e8ecf0",
+            marginBottom: 16,
+            overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
+          }}>
+            <div style={{ display: "flex", minWidth: "max-content" }}>
+              <button onClick={() => switchTab("overview")} style={tabStyle(activeTab === "overview")}>
+                Overview
+              </button>
+              <button onClick={() => switchTab("violations")} style={tabStyle(activeTab === "violations")}>
+                Violations ({addressResult.violations.length})
+              </button>
+              <button onClick={() => switchTab("complaints")} style={tabStyle(activeTab === "complaints")}>
+                Complaints ({addressResult.complaints.length})
+              </button>
+              <button onClick={() => switchTab("reviews")} style={tabStyle(activeTab === "reviews")}>
+                Reviews ({reviewCount})
+              </button>
+              <button onClick={() => switchTab("permits")} style={tabStyle(activeTab === "permits")}>
+                Permits ({permits.length})
+              </button>
+            </div>
+          </div>
+
+          {/* ─── TAB CONTENT ─── */}
+
+          {/* ═══ OVERVIEW TAB ═══ */}
+          {activeTab === "overview" && (
+            <>
+              {/* About This Building */}
+              <div style={{
+                border: "1px solid #e8ecf0",
+                borderRadius: 8,
+                background: "#fff",
+                padding: "20px 28px",
+                marginBottom: 16,
+              }}>
+                <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  About This Building
+                </h2>
+                <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: 0 }}>
+                  {addressResult.address} is located in {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL.
+                  {claimInfo?.company_name ? ` This building is managed by ${claimInfo.company_name}.` : ""}
+                  {" "}City of Chicago records show{" "}
+                  {addressResult.violations.length === 0 && addressResult.complaints.length === 0
+                    ? "no building violations or 311 complaints on file"
+                    : `${addressResult.violations.length} building violation${addressResult.violations.length !== 1 ? "s" : ""} and ${addressResult.complaints.length} 311 complaint${addressResult.complaints.length !== 1 ? "s" : ""}`
+                  }.
+                  {addressResult.violations.length > 0 && (() => {
+                    const sorted = [...addressResult.violations].sort((a, b) =>
+                      new Date(b.violation_date).getTime() - new Date(a.violation_date).getTime()
+                    );
+                    const latest = new Date(sorted[0].violation_date);
+                    return ` The most recent violation was recorded in ${latest.toLocaleDateString("en-US", { month: "long", year: "numeric" })}.`;
+                  })()}
+                </p>
               </div>
-              {neighborhoodInfo.notableFeatures.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 11, color: "#8b949e", fontWeight: 600, marginBottom: 6 }}>NOTABLE FEATURES</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {neighborhoodInfo.notableFeatures.map((f) => (
-                      <span key={f} style={{ padding: "4px 10px", background: "#ddf4ff", borderRadius: 12, fontSize: 12, color: "#0969da" }}>
-                        {f}
-                      </span>
-                    ))}
+
+              {/* Neighborhood Overview */}
+              {neighborhoodInfo && (
+                <div style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}>
+                  <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Neighborhood Overview — {neighborhoodInfo.name}
+                  </h2>
+                  <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: "0 0 16px" }}>
+                    {neighborhoodInfo.description}
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                    <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
+                      <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>VIBE</div>
+                      <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.vibe}</div>
+                    </div>
+                    <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
+                      <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>TRANSIT</div>
+                      <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.transitAccess}</div>
+                    </div>
+                    <div style={{ padding: 12, background: "#f6f8fa", borderRadius: 6 }}>
+                      <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 4, fontWeight: 600 }}>RENT RANGE</div>
+                      <div style={{ fontSize: 13, color: "#1f2328" }}>{neighborhoodInfo.rentRange}</div>
+                    </div>
+                  </div>
+                  {neighborhoodInfo.notableFeatures.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, color: "#8b949e", fontWeight: 600, marginBottom: 6 }}>NOTABLE FEATURES</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {neighborhoodInfo.notableFeatures.map((f) => (
+                          <span key={f} style={{ padding: "4px 10px", background: "#ddf4ff", borderRadius: 12, fontSize: 12, color: "#0969da" }}>
+                            {f}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Abbreviated Community Reports */}
+              {communityReview && communityReview.relevant_review_count > 0 && (
+                <div style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                    <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      Community Reports
+                    </h2>
+                    <span style={{
+                      display: "inline-block",
+                      padding: "2px 10px",
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: communityReview.overall_sentiment === "Positive" ? "#dafbe1" : communityReview.overall_sentiment === "Negative" ? "#ffebe9" : "#fff8c5",
+                      color: communityReview.overall_sentiment === "Positive" ? "#1a7f37" : communityReview.overall_sentiment === "Negative" ? "#cf222e" : "#9a6700",
+                    }}>
+                      {communityReview.overall_sentiment}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: "0 0 14px" }}>
+                    {communityReview.overall_summary}
+                  </p>
+                  <button
+                    onClick={() => switchTab("reviews")}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#1f6feb",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      padding: 0,
+                    }}
+                  >
+                    View all {communityReview.relevant_review_count} reviews →
+                  </button>
+                </div>
+              )}
+
+              {/* Clean Record Card */}
+              {isCleanRecord && (
+                <div
+                  style={{
+                    border: "2px solid #a7f3d0",
+                    borderRadius: 10,
+                    background: "linear-gradient(to bottom, #ecfdf5, #fff)",
+                    padding: "36px 28px",
+                    marginBottom: 16,
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ marginBottom: 16 }}>
+                    <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M28 4L8 14v14c0 12.4 8.53 24.01 20 26.8C39.47 52.01 48 40.4 48 28V14L28 4z" fill="#d1fae5" stroke="#1a7f37" strokeWidth="2"/>
+                      <path d="M20 28l6 6 10-10" stroke="#1a7f37" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1a7f37", margin: "0 0 8px" }}>
+                    Clean Record
+                  </h3>
+                  <p style={{ fontSize: 15, color: "#1f2328", margin: "0 0 8px", fontWeight: 600 }}>
+                    No building violations or 311 complaints on file
+                  </p>
+                  <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 24px", lineHeight: 1.6, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
+                    Based on City of Chicago open data, this address has no recorded building code violations
+                    or 311 service complaints. Records are updated regularly but may not reflect very recent activity.
+                  </p>
+                  <div style={{
+                    borderTop: "1px solid #d1fae5",
+                    paddingTop: 20,
+                    maxWidth: 420,
+                    margin: "0 auto",
+                  }}>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", margin: "0 0 12px" }}>
+                      Get alerted if this changes
+                    </p>
+                    {watchStatus === "success" ? (
+                      <p style={{ fontSize: 13, color: "#1a7f37", fontWeight: 600 }}>{watchMessage}</p>
+                    ) : (
+                      <form onSubmit={handleWatchSubmit} style={{ display: "flex", gap: 8 }}>
+                        <input
+                          type="email"
+                          placeholder="you@email.com"
+                          value={watchEmail}
+                          onChange={(e) => setWatchEmail(e.target.value)}
+                          required
+                          style={{
+                            flex: 1,
+                            padding: "10px 14px",
+                            border: "1px solid #d0d7de",
+                            borderRadius: 6,
+                            fontSize: 14,
+                            fontFamily: "inherit",
+                            outline: "none",
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          disabled={watchStatus === "loading"}
+                          style={{
+                            padding: "10px 20px",
+                            background: "#1a7f37",
+                            border: "none",
+                            borderRadius: 6,
+                            color: "#fff",
+                            fontSize: 14,
+                            fontWeight: 600,
+                            cursor: watchStatus === "loading" ? "not-allowed" : "pointer",
+                            fontFamily: "inherit",
+                            opacity: watchStatus === "loading" ? 0.7 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {watchStatus === "loading" ? "Saving..." : "Watch"}
+                        </button>
+                      </form>
+                    )}
+                    {watchStatus === "error" && (
+                      <p style={{ fontSize: 12, color: "#cf222e", marginTop: 8 }}>{watchMessage}</p>
+                    )}
                   </div>
                 </div>
+              )}
+
+              {/* Building Claim Info */}
+              {claimInfo && (
+                <div
+                  style={{
+                    border: `1px solid ${claimInfo.verification_status === "approved" ? "#a7f3d0" : "#fde68a"}`,
+                    borderRadius: 8,
+                    background: claimInfo.verification_status === "approved" ? "#ecfdf5" : "#fffbeb",
+                    padding: "16px 28px",
+                    marginBottom: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 16,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
+                      {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" && (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="#1a7f37" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                          <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                        </svg>
+                      )}
+                      Managed by {claimInfo.company_name || "Property Owner"}
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, color: "#57606a" }}>
+                        {claimInfo.claimant_role === "owner" ? "Owner" : claimInfo.claimant_role === "property_manager" ? "Property Manager" : "Management Company"}
+                      </span>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 10,
+                          background: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#d1fae5" : claimInfo.verification_status === "approved" ? "#e8ecf0" : "#fef3c7",
+                          color: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#065f46" : claimInfo.verification_status === "approved" ? "#57606a" : "#92400e",
+                        }}
+                      >
+                        {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "Verified" : claimInfo.verification_status === "approved" ? "Claimed" : "Pending Verification"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Claim CTA */}
+              <div
+                style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 20,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ flexShrink: 0 }}>
+                  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="8" y="16" width="24" height="20" rx="2" fill="#ddf4ff" stroke="#0969da" strokeWidth="1.5"/>
+                    <path d="M14 16V10a6 6 0 0 1 12 0v6" stroke="#0969da" strokeWidth="1.5" fill="none"/>
+                    <rect x="12" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
+                    <rect x="18" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
+                    <rect x="24" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
+                    <rect x="12" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
+                    <rect x="18" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
+                    <rect x="24" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
+                  </svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+                    Own or manage this building?
+                  </p>
+                  <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
+                    Claim this property to respond to reviews and update building information.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (!auth.user && isSupabaseConfigured()) {
+                      setReturnView("address-profile");
+                      setView("login");
+                      return;
+                    }
+                    window.location.href = `mailto:support@tenantshield.com?subject=${encodeURIComponent("Claim Building: " + addressResult.address)}&body=${encodeURIComponent("I would like to claim ownership/management of the building at " + addressResult.address + ".\n\nPlease verify my identity and grant me access to manage this property listing.")}`;
+                  }}
+                  style={{
+                    padding: "10px 20px",
+                    background: "#fff",
+                    border: "1px solid #d0d7de",
+                    borderRadius: 6,
+                    color: "#1f2328",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Claim This Building
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ═══ VIOLATIONS TAB ═══ */}
+          {activeTab === "violations" && (
+            <div
+              style={{
+                border: "1px solid #e8ecf0",
+                borderRadius: 8,
+                background: "#fff",
+                padding: "20px 28px",
+                marginBottom: 16,
+              }}
+            >
+              <h3 style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#1f2328",
+                margin: "0 0 16px",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}>
+                Building Violations ({addressResult.violations.length})
+              </h3>
+              {addressResult.violations.length === 0 ? (
+                <p style={{ fontSize: 14, color: "#57606a" }}>No building violations on record for this address.</p>
+              ) : (
+                <>
+                  {(showAllProfileViolations ? addressResult.violations : addressResult.violations.slice(0, 10)).map((v, i, arr) => {
+                    const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
+                    return (
+                      <div
+                        key={v.id || i}
+                        style={{
+                          borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                          padding: "16px 0",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{
+                              display: "inline-block",
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: isOpen ? "#cf222e" : "#1a7f37",
+                              flexShrink: 0,
+                            }} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                              {v.inspection_category || "Building Violation"}
+                            </span>
+                            {v.department_bureau && (
+                              <span style={{ fontSize: 11, color: "#8b949e" }}>· {v.department_bureau}</span>
+                            )}
+                          </div>
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            background: isOpen ? "#ffebe9" : "#dafbe1",
+                            color: isOpen ? "#cf222e" : "#1a7f37",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}>
+                            {isOpen ? "Open" : "Resolved"}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
+                          {v.violation_description || "No description available"}
+                        </p>
+                        {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
+                          <p style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16, fontStyle: "italic" }}>
+                            Inspector notes: {v.violation_inspector_comments}
+                          </p>
+                        )}
+                        {v.violation_ordinance && (
+                          <p style={{ fontSize: 11, color: "#8b949e", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16 }}>
+                            {v.violation_ordinance}
+                          </p>
+                        )}
+                        <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          <span>{v.violation_date ? formatDate(v.violation_date) : "Date unknown"}</span>
+                          {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
+                          {v.violation_code && <span> · Code {v.violation_code}</span>}
+                        </div>
+                        {v.id && addressResponses[v.id] && (
+                          <div style={{
+                            marginTop: 10,
+                            marginLeft: 16,
+                            padding: "10px 14px",
+                            borderLeft: "3px solid #1a7f37",
+                            background: "#f0fdf4",
+                            borderRadius: "0 6px 6px 0",
+                          }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[v.id].response_text}</p>
+                            <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[v.id].created_at)}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {addressResult.violations.length > 10 && (
+                    <button
+                      onClick={() => setShowAllProfileViolations((p) => !p)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        padding: "10px 0",
+                        background: "#f6f8fa",
+                        border: "1px solid #e8ecf0",
+                        borderRadius: 6,
+                        color: "#1f6feb",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        marginTop: 8,
+                      }}
+                    >
+                      {showAllProfileViolations ? "Show less" : `Show all ${addressResult.violations.length}`}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}
 
-          {/* ─── NEARBY BUILDINGS ─── */}
+          {/* ═══ COMPLAINTS TAB ═══ */}
+          {activeTab === "complaints" && (
+            <div
+              style={{
+                border: "1px solid #e8ecf0",
+                borderRadius: 8,
+                background: "#fff",
+                padding: "20px 28px",
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                <h3 style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#1f2328",
+                  margin: 0,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}>
+                  311 Complaints ({filteredComplaints.length})
+                </h3>
+                {addressResult.complaints.length > 0 && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => { setComplaintFilter("all"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "all")}>
+                      All ({addressResult.complaints.length})
+                    </button>
+                    <button onClick={() => { setComplaintFilter("building"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "building")}>
+                      Building ({buildingComplaints.length})
+                    </button>
+                    <button onClick={() => { setComplaintFilter("street"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "street")}>
+                      Street ({streetComplaints.length})
+                    </button>
+                  </div>
+                )}
+              </div>
+              {complaintFilter !== "all" && (
+                <div style={{ fontSize: 12, color: "#57606a", marginBottom: 12, padding: "8px 12px", background: "#f6f8fa", borderRadius: 6 }}>
+                  {complaintFilter === "building"
+                    ? "Showing building-related complaints (noise, no heat, water issues, building code, etc.)"
+                    : "Showing street-level complaints (potholes, graffiti, street lights, abandoned vehicles, etc.)"}
+                </div>
+              )}
+              {filteredComplaints.length === 0 ? (
+                <p style={{ fontSize: 14, color: "#57606a" }}>
+                  {addressResult.complaints.length === 0
+                    ? "No 311 complaints on record for this address."
+                    : `No ${complaintFilter === "building" ? "building-related" : "street-level"} complaints found.`}
+                </p>
+              ) : (
+                <>
+                  {(showAllProfileComplaints ? filteredComplaints : filteredComplaints.slice(0, 10)).map((c, i, arr) => {
+                    const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
+                    const isBldg = isBuildingRelated(c.sr_type);
+                    return (
+                      <div
+                        key={c.sr_number || i}
+                        style={{
+                          borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                          padding: "16px 0",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{
+                              display: "inline-block",
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: isClosed ? "#1a7f37" : "#bc4c00",
+                              flexShrink: 0,
+                            }} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                              {c.sr_type || "Service Request"}
+                            </span>
+                            {complaintFilter === "all" && (
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: "1px 6px",
+                                borderRadius: 3,
+                                background: isBldg ? "#ddf4ff" : "#fff8c5",
+                                color: isBldg ? "#0969da" : "#9a6700",
+                              }}>
+                                {isBldg ? "Building" : "Street"}
+                              </span>
+                            )}
+                          </div>
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            background: isClosed ? "#dafbe1" : "#fff1e5",
+                            color: isClosed ? "#1a7f37" : "#bc4c00",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}>
+                            {isClosed ? "Resolved" : "Open"}
+                          </span>
+                        </div>
+                        {c.owner_department && (
+                          <div style={{ fontSize: 12, color: "#424a53", paddingLeft: 16, marginBottom: 4 }}>
+                            Handled by: {c.owner_department}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          <span>Filed {c.created_date ? formatDate(c.created_date) : "date unknown"}</span>
+                          {isClosed && c.closed_date && <span> · Closed {formatDate(c.closed_date)}</span>}
+                          {c.sr_number && <span> · #{c.sr_number}</span>}
+                          {c.ward && <span> · Ward {c.ward}</span>}
+                        </div>
+                        {c.sr_number && addressResponses[`sr_${c.sr_number}`] && (
+                          <div style={{
+                            marginTop: 10,
+                            marginLeft: 16,
+                            padding: "10px 14px",
+                            borderLeft: "3px solid #1a7f37",
+                            background: "#f0fdf4",
+                            borderRadius: "0 6px 6px 0",
+                          }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[`sr_${c.sr_number}`].response_text}</p>
+                            <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[`sr_${c.sr_number}`].created_at)}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {filteredComplaints.length > 10 && (
+                    <button
+                      onClick={() => setShowAllProfileComplaints((p) => !p)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        padding: "10px 0",
+                        background: "#f6f8fa",
+                        border: "1px solid #e8ecf0",
+                        borderRadius: 6,
+                        color: "#1f6feb",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        marginTop: 8,
+                      }}
+                    >
+                      {showAllProfileComplaints ? "Show less" : `Show all ${filteredComplaints.length}`}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ═══ REVIEWS TAB ═══ */}
+          {activeTab === "reviews" && (
+            <>
+              {/* Full Community Reports */}
+              {communityReview && communityReview.relevant_review_count > 0 ? (
+                <div style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                    <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      Community Reports
+                    </h2>
+                    <span style={{
+                      display: "inline-block",
+                      padding: "2px 10px",
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: communityReview.overall_sentiment === "Positive" ? "#dafbe1" : communityReview.overall_sentiment === "Negative" ? "#ffebe9" : "#fff8c5",
+                      color: communityReview.overall_sentiment === "Positive" ? "#1a7f37" : communityReview.overall_sentiment === "Negative" ? "#cf222e" : "#9a6700",
+                    }}>
+                      {communityReview.overall_sentiment}
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: "0 0 14px" }}>
+                    {communityReview.overall_summary}
+                  </p>
+
+                  {communityReview.key_themes.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                      {communityReview.key_themes.map((theme) => (
+                        <span key={theme} style={{
+                          padding: "3px 10px",
+                          background: "#f6f8fa",
+                          border: "1px solid #e8ecf0",
+                          borderRadius: 999,
+                          fontSize: 11,
+                          color: "#57606a",
+                          fontWeight: 500,
+                          textTransform: "capitalize",
+                        }}>
+                          {theme.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {communityReview.reports.map((report, idx) => (
+                      <div key={idx} style={{
+                        padding: "12px 14px",
+                        background: "#f6f8fa",
+                        borderRadius: 6,
+                        borderLeft: `3px solid ${report.sentiment === "Positive" ? "#1a7f37" : report.sentiment === "Negative" ? "#cf222e" : "#8b949e"}`,
+                      }}>
+                        <p style={{ fontSize: 13, color: "#1f2328", lineHeight: 1.6, margin: "0 0 6px" }}>
+                          {report.summary}
+                        </p>
+                        <div style={{ fontSize: 11, color: "#8b949e" }}>
+                          {report.source}{report.date ? ` \u00B7 ${report.date}` : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p style={{ fontSize: 11, color: "#8b949e", marginTop: 14, marginBottom: 0, lineHeight: 1.5 }}>
+                    Community reports are sourced from public forums and do not represent the views of TenantShield.
+                    Report data is refreshed weekly and may not reflect the most recent experiences.
+                  </p>
+                </div>
+              ) : (
+                <div style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}>
+                  <p style={{ fontSize: 14, color: "#57606a" }}>No community reviews on record for this address yet.</p>
+                </div>
+              )}
+
+              {/* Review CTA */}
+              <div
+                style={{
+                  border: "2px solid #d4e4fb",
+                  borderRadius: 10,
+                  background: "linear-gradient(to bottom, #f0f6ff, #fff)",
+                  padding: "36px 28px",
+                  textAlign: "center",
+                }}
+              >
+                <h3 style={{ fontSize: 19, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
+                  Have you lived here?
+                </h3>
+                <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 8px", lineHeight: 1.6 }}>
+                  Your experience helps other renters make informed decisions.
+                </p>
+                <p style={{ fontSize: 13, color: "#8b949e", margin: "0 0 20px", lineHeight: 1.5 }}>
+                  City records only tell part of the story. Share what it was actually like — maintenance response times, deposit fairness, communication, and more.
+                </p>
+                <button
+                  onClick={goReview}
+                  style={{
+                    padding: "14px 36px",
+                    background: "#1f6feb",
+                    border: "none",
+                    borderRadius: 8,
+                    color: "#fff",
+                    fontSize: 16,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    boxShadow: "0 2px 8px rgba(31,111,235,0.3)",
+                  }}
+                >
+                  Write a Review
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ═══ PERMITS TAB ═══ */}
+          {activeTab === "permits" && (
+            <div
+              style={{
+                border: "1px solid #e8ecf0",
+                borderRadius: 8,
+                background: "#fff",
+                padding: "20px 28px",
+                marginBottom: 16,
+              }}
+            >
+              <h3 style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#1f2328",
+                margin: "0 0 16px",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}>
+                Building Permits ({permits.length})
+              </h3>
+              {permits.length === 0 ? (
+                <p style={{ fontSize: 14, color: "#57606a" }}>No building permits on record for this address.</p>
+              ) : (
+                <>
+                  {(showAllProfilePermits ? permits : permits.slice(0, 10)).map((p, i, arr) => (
+                    <div
+                      key={p.id || i}
+                      style={{
+                        borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
+                        padding: "16px 0",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{
+                            display: "inline-block",
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: "#1f6feb",
+                            flexShrink: 0,
+                          }} />
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                            {p.permit_type || "Permit"}
+                          </span>
+                        </div>
+                        {p.permit_status && (
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            background: "#ddf4ff",
+                            color: "#0969da",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}>
+                            {p.permit_status}
+                          </span>
+                        )}
+                      </div>
+                      {p.work_description && (
+                        <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
+                          {p.work_description}
+                        </p>
+                      )}
+                      {p.contact_1_name && (
+                        <div style={{ fontSize: 12, color: "#57606a", paddingLeft: 16, marginBottom: 2 }}>
+                          {p.contact_1_type ? `${p.contact_1_type}: ` : "Contractor: "}{p.contact_1_name}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {p.issue_date && <span>Issued {formatDate(p.issue_date)}</span>}
+                        {p.permit_ && <span> · Permit #{p.permit_}</span>}
+                        {p.reported_cost && Number(p.reported_cost) > 0 && <span> · Est. cost ${Number(p.reported_cost).toLocaleString()}</span>}
+                        {p.total_fee && Number(p.total_fee) > 0 && <span> · Fee ${Number(p.total_fee).toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {permits.length > 10 && (
+                    <button
+                      onClick={() => setShowAllProfilePermits((p) => !p)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        padding: "10px 0",
+                        background: "#f6f8fa",
+                        border: "1px solid #e8ecf0",
+                        borderRadius: 6,
+                        color: "#1f6feb",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        marginTop: 8,
+                      }}
+                    >
+                      {showAllProfilePermits ? "Show less" : `Show all ${permits.length}`}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ─── NEARBY BUILDINGS (always visible) ─── */}
           {nearbyBuildings && nearbyBuildings.length > 0 && neighborhood && (
             <div style={{
               border: "1px solid #e8ecf0",
@@ -3239,630 +4112,6 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               </div>
             </div>
           )}
-
-          {isCleanRecord ? (
-            /* ─── CLEAN RECORD CARD ─── */
-            <div
-              style={{
-                border: "2px solid #a7f3d0",
-                borderRadius: 10,
-                background: "linear-gradient(to bottom, #ecfdf5, #fff)",
-                padding: "36px 28px",
-                marginBottom: 16,
-                textAlign: "center",
-              }}
-            >
-              {/* Green shield + checkmark */}
-              <div style={{ marginBottom: 16 }}>
-                <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M28 4L8 14v14c0 12.4 8.53 24.01 20 26.8C39.47 52.01 48 40.4 48 28V14L28 4z" fill="#d1fae5" stroke="#1a7f37" strokeWidth="2"/>
-                  <path d="M20 28l6 6 10-10" stroke="#1a7f37" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1a7f37", margin: "0 0 8px" }}>
-                Clean Record
-              </h3>
-              <p style={{ fontSize: 15, color: "#1f2328", margin: "0 0 8px", fontWeight: 600 }}>
-                No building violations or 311 complaints on file
-              </p>
-              <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 24px", lineHeight: 1.6, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
-                Based on City of Chicago open data, this address has no recorded building code violations
-                or 311 service complaints. Records are updated regularly but may not reflect very recent activity.
-              </p>
-
-              {/* Address watch email form */}
-              <div style={{
-                borderTop: "1px solid #d1fae5",
-                paddingTop: 20,
-                maxWidth: 420,
-                margin: "0 auto",
-              }}>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", margin: "0 0 12px" }}>
-                  Get alerted if this changes
-                </p>
-                {watchStatus === "success" ? (
-                  <p style={{ fontSize: 13, color: "#1a7f37", fontWeight: 600 }}>{watchMessage}</p>
-                ) : (
-                  <form onSubmit={handleWatchSubmit} style={{ display: "flex", gap: 8 }}>
-                    <input
-                      type="email"
-                      placeholder="you@email.com"
-                      value={watchEmail}
-                      onChange={(e) => setWatchEmail(e.target.value)}
-                      required
-                      style={{
-                        flex: 1,
-                        padding: "10px 14px",
-                        border: "1px solid #d0d7de",
-                        borderRadius: 6,
-                        fontSize: 14,
-                        fontFamily: "inherit",
-                        outline: "none",
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      disabled={watchStatus === "loading"}
-                      style={{
-                        padding: "10px 20px",
-                        background: "#1a7f37",
-                        border: "none",
-                        borderRadius: 6,
-                        color: "#fff",
-                        fontSize: 14,
-                        fontWeight: 600,
-                        cursor: watchStatus === "loading" ? "not-allowed" : "pointer",
-                        fontFamily: "inherit",
-                        opacity: watchStatus === "loading" ? 0.7 : 1,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {watchStatus === "loading" ? "Saving..." : "Watch"}
-                    </button>
-                  </form>
-                )}
-                {watchStatus === "error" && (
-                  <p style={{ fontSize: 12, color: "#cf222e", marginTop: 8 }}>{watchMessage}</p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* 311 Complaints with Filtering */}
-              <div
-                style={{
-                  border: "1px solid #e8ecf0",
-                  borderRadius: 8,
-                  background: "#fff",
-                  padding: "20px 28px",
-                  marginBottom: 16,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-                  <h3 style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#1f2328",
-                    margin: 0,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.5,
-                  }}>
-                    311 Complaints ({filteredComplaints.length})
-                  </h3>
-                  {addressResult.complaints.length > 0 && (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => { setComplaintFilter("all"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "all")}>
-                        All ({addressResult.complaints.length})
-                      </button>
-                      <button onClick={() => { setComplaintFilter("building"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "building")}>
-                        Building ({buildingComplaints.length})
-                      </button>
-                      <button onClick={() => { setComplaintFilter("street"); setShowAllProfileComplaints(false); }} style={filterBtnStyle(complaintFilter === "street")}>
-                        Street ({streetComplaints.length})
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {complaintFilter !== "all" && (
-                  <div style={{ fontSize: 12, color: "#57606a", marginBottom: 12, padding: "8px 12px", background: "#f6f8fa", borderRadius: 6 }}>
-                    {complaintFilter === "building"
-                      ? "Showing building-related complaints (noise, no heat, water issues, building code, etc.)"
-                      : "Showing street-level complaints (potholes, graffiti, street lights, abandoned vehicles, etc.)"}
-                  </div>
-                )}
-                {filteredComplaints.length === 0 ? (
-                  <p style={{ fontSize: 14, color: "#57606a" }}>
-                    {addressResult.complaints.length === 0
-                      ? "No 311 complaints on record for this address."
-                      : `No ${complaintFilter === "building" ? "building-related" : "street-level"} complaints found.`}
-                  </p>
-                ) : (
-                  <>
-                    {(showAllProfileComplaints ? filteredComplaints : filteredComplaints.slice(0, 10)).map((c, i, arr) => {
-                      const isClosed = c.status?.toUpperCase() === "CLOSED" || c.status?.toUpperCase() === "COMPLETED";
-                      const isBldg = isBuildingRelated(c.sr_type);
-                      return (
-                        <div
-                          key={c.sr_number || i}
-                          style={{
-                            borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
-                            padding: "16px 0",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <span style={{
-                                display: "inline-block",
-                                width: 8,
-                                height: 8,
-                                borderRadius: "50%",
-                                background: isClosed ? "#1a7f37" : "#bc4c00",
-                                flexShrink: 0,
-                              }} />
-                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
-                                {c.sr_type || "Service Request"}
-                              </span>
-                              {complaintFilter === "all" && (
-                                <span style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  padding: "1px 6px",
-                                  borderRadius: 3,
-                                  background: isBldg ? "#ddf4ff" : "#fff8c5",
-                                  color: isBldg ? "#0969da" : "#9a6700",
-                                }}>
-                                  {isBldg ? "Building" : "Street"}
-                                </span>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              padding: "2px 8px",
-                              borderRadius: 4,
-                              background: isClosed ? "#dafbe1" : "#fff1e5",
-                              color: isClosed ? "#1a7f37" : "#bc4c00",
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}>
-                              {isClosed ? "Resolved" : "Open"}
-                            </span>
-                          </div>
-                          {c.owner_department && (
-                            <div style={{ fontSize: 12, color: "#424a53", paddingLeft: 16, marginBottom: 4 }}>
-                              Handled by: {c.owner_department}
-                            </div>
-                          )}
-                          <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                            <span>Filed {c.created_date ? formatDate(c.created_date) : "date unknown"}</span>
-                            {isClosed && c.closed_date && <span> · Closed {formatDate(c.closed_date)}</span>}
-                            {c.sr_number && <span> · #{c.sr_number}</span>}
-                            {c.ward && <span> · Ward {c.ward}</span>}
-                          </div>
-                          {c.sr_number && addressResponses[`sr_${c.sr_number}`] && (
-                            <div style={{
-                              marginTop: 10,
-                              marginLeft: 16,
-                              padding: "10px 14px",
-                              borderLeft: "3px solid #1a7f37",
-                              background: "#f0fdf4",
-                              borderRadius: "0 6px 6px 0",
-                            }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
-                              <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[`sr_${c.sr_number}`].response_text}</p>
-                              <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[`sr_${c.sr_number}`].created_at)}</div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {filteredComplaints.length > 10 && (
-                      <button
-                        onClick={() => setShowAllProfileComplaints((p) => !p)}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          padding: "10px 0",
-                          background: "#f6f8fa",
-                          border: "1px solid #e8ecf0",
-                          borderRadius: 6,
-                          color: "#1f6feb",
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                          marginTop: 8,
-                        }}
-                      >
-                        {showAllProfileComplaints ? "Show less" : `Show all ${filteredComplaints.length}`}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Building Violations */}
-              <div
-                style={{
-                  border: "1px solid #e8ecf0",
-                  borderRadius: 8,
-                  background: "#fff",
-                  padding: "20px 28px",
-                  marginBottom: 16,
-                }}
-              >
-                <h3 style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#1f2328",
-                  margin: "0 0 16px",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                }}>
-                  Building Violations ({addressResult.violations.length})
-                </h3>
-                {addressResult.violations.length === 0 ? (
-                  <p style={{ fontSize: 14, color: "#57606a" }}>No building violations on record for this address.</p>
-                ) : (
-                  <>
-                    {(showAllProfileViolations ? addressResult.violations : addressResult.violations.slice(0, 10)).map((v, i, arr) => {
-                      const isOpen = v.violation_status?.toUpperCase() !== "COMPLIANT" && v.violation_status?.toUpperCase() !== "COMPLIED";
-                      return (
-                        <div
-                          key={v.id || i}
-                          style={{
-                            borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
-                            padding: "16px 0",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{
-                                display: "inline-block",
-                                width: 8,
-                                height: 8,
-                                borderRadius: "50%",
-                                background: isOpen ? "#cf222e" : "#1a7f37",
-                                flexShrink: 0,
-                              }} />
-                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
-                                {v.inspection_category || "Building Violation"}
-                              </span>
-                              {v.department_bureau && (
-                                <span style={{ fontSize: 11, color: "#8b949e" }}>· {v.department_bureau}</span>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              padding: "2px 8px",
-                              borderRadius: 4,
-                              background: isOpen ? "#ffebe9" : "#dafbe1",
-                              color: isOpen ? "#cf222e" : "#1a7f37",
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}>
-                              {isOpen ? "Open" : "Resolved"}
-                            </span>
-                          </div>
-                          <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
-                            {v.violation_description || "No description available"}
-                          </p>
-                          {v.violation_inspector_comments && v.violation_inspector_comments !== v.violation_description && (
-                            <p style={{ fontSize: 12, color: "#57606a", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16, fontStyle: "italic" }}>
-                              Inspector notes: {v.violation_inspector_comments}
-                            </p>
-                          )}
-                          {v.violation_ordinance && (
-                            <p style={{ fontSize: 11, color: "#8b949e", lineHeight: 1.5, margin: "0 0 4px", paddingLeft: 16 }}>
-                              {v.violation_ordinance}
-                            </p>
-                          )}
-                          <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                            <span>{v.violation_date ? formatDate(v.violation_date) : "Date unknown"}</span>
-                            {!isOpen && v.violation_status_date && <span> · Resolved {formatDate(v.violation_status_date)}</span>}
-                            {v.violation_code && <span> · Code {v.violation_code}</span>}
-                          </div>
-                          {v.id && addressResponses[v.id] && (
-                            <div style={{
-                              marginTop: 10,
-                              marginLeft: 16,
-                              padding: "10px 14px",
-                              borderLeft: "3px solid #1a7f37",
-                              background: "#f0fdf4",
-                              borderRadius: "0 6px 6px 0",
-                            }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
-                              <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[v.id].response_text}</p>
-                              <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[v.id].created_at)}</div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {addressResult.violations.length > 10 && (
-                      <button
-                        onClick={() => setShowAllProfileViolations((p) => !p)}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          padding: "10px 0",
-                          background: "#f6f8fa",
-                          border: "1px solid #e8ecf0",
-                          borderRadius: 6,
-                          color: "#1f6feb",
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                          marginTop: 8,
-                        }}
-                      >
-                        {showAllProfileViolations ? "Show less" : `Show all ${addressResult.violations.length}`}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Building Permits */}
-          <div
-            style={{
-              border: "1px solid #e8ecf0",
-              borderRadius: 8,
-              background: "#fff",
-              padding: "20px 28px",
-              marginBottom: 16,
-            }}
-          >
-            <h3 style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#1f2328",
-              margin: "0 0 16px",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-            }}>
-              Building Permits ({permits.length})
-            </h3>
-            {permits.length === 0 ? (
-              <p style={{ fontSize: 14, color: "#57606a" }}>No building permits on record for this address.</p>
-            ) : (
-              <>
-                {(showAllProfilePermits ? permits : permits.slice(0, 10)).map((p, i, arr) => (
-                  <div
-                    key={p.id || i}
-                    style={{
-                      borderBottom: i < arr.length - 1 ? "1px solid #f0f3f6" : "none",
-                      padding: "16px 0",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{
-                          display: "inline-block",
-                          width: 8,
-                          height: 8,
-                          borderRadius: "50%",
-                          background: "#1f6feb",
-                          flexShrink: 0,
-                        }} />
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
-                          {p.permit_type || "Permit"}
-                        </span>
-                      </div>
-                      {p.permit_status && (
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: "#ddf4ff",
-                          color: "#0969da",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}>
-                          {p.permit_status}
-                        </span>
-                      )}
-                    </div>
-                    {p.work_description && (
-                      <p style={{ fontSize: 13, color: "#424a53", lineHeight: 1.6, margin: "0 0 4px", paddingLeft: 16 }}>
-                        {p.work_description}
-                      </p>
-                    )}
-                    {p.contact_1_name && (
-                      <div style={{ fontSize: 12, color: "#57606a", paddingLeft: 16, marginBottom: 2 }}>
-                        {p.contact_1_type ? `${p.contact_1_type}: ` : "Contractor: "}{p.contact_1_name}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 12, color: "#8b949e", paddingLeft: 16, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {p.issue_date && <span>Issued {formatDate(p.issue_date)}</span>}
-                      {p.permit_ && <span> · Permit #{p.permit_}</span>}
-                      {p.reported_cost && Number(p.reported_cost) > 0 && <span> · Est. cost ${Number(p.reported_cost).toLocaleString()}</span>}
-                      {p.total_fee && Number(p.total_fee) > 0 && <span> · Fee ${Number(p.total_fee).toLocaleString()}</span>}
-                    </div>
-                  </div>
-                ))}
-                {permits.length > 10 && (
-                  <button
-                    onClick={() => setShowAllProfilePermits((p) => !p)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      padding: "10px 0",
-                      background: "#f6f8fa",
-                      border: "1px solid #e8ecf0",
-                      borderRadius: 6,
-                      color: "#1f6feb",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      marginTop: 8,
-                    }}
-                  >
-                    {showAllProfilePermits ? "Show less" : `Show all ${permits.length}`}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-
-          <div style={{ textAlign: "center", marginBottom: 16 }}>
-            <ins className="adsbygoogle"
-              style={{ display: "block" }}
-              data-ad-client="ca-pub-1105551881353525"
-              data-ad-slot="auto"
-              data-ad-format="auto"
-              data-full-width-responsive="true" />
-            <script dangerouslySetInnerHTML={{ __html: "(adsbygoogle = window.adsbygoogle || []).push({});" }} />
-          </div>
-
-          {/* Building Claim Info / Claim CTA */}
-          {claimInfo && (
-            <div
-              style={{
-                border: `1px solid ${claimInfo.verification_status === "approved" ? "#a7f3d0" : "#fde68a"}`,
-                borderRadius: 8,
-                background: claimInfo.verification_status === "approved" ? "#ecfdf5" : "#fffbeb",
-                padding: "16px 28px",
-                marginBottom: 16,
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-                flexWrap: "wrap",
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
-                  {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" && (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#1a7f37" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                      <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                    </svg>
-                  )}
-                  Managed by {claimInfo.company_name || "Property Owner"}
-                </p>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, color: "#57606a" }}>
-                    {claimInfo.claimant_role === "owner" ? "Owner" : claimInfo.claimant_role === "property_manager" ? "Property Manager" : "Management Company"}
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      padding: "2px 8px",
-                      borderRadius: 10,
-                      background: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#d1fae5" : claimInfo.verification_status === "approved" ? "#e8ecf0" : "#fef3c7",
-                      color: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#065f46" : claimInfo.verification_status === "approved" ? "#57606a" : "#92400e",
-                    }}
-                  >
-                    {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "Verified" : claimInfo.verification_status === "approved" ? "Claimed" : "Pending Verification"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-          <div
-            style={{
-              border: "1px solid #e8ecf0",
-              borderRadius: 8,
-              background: "#fff",
-              padding: "20px 28px",
-              marginBottom: 16,
-              display: "flex",
-              alignItems: "center",
-              gap: 20,
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ flexShrink: 0 }}>
-              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="8" y="16" width="24" height="20" rx="2" fill="#ddf4ff" stroke="#0969da" strokeWidth="1.5"/>
-                <path d="M14 16V10a6 6 0 0 1 12 0v6" stroke="#0969da" strokeWidth="1.5" fill="none"/>
-                <rect x="12" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
-                <rect x="18" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
-                <rect x="24" y="22" width="4" height="4" rx="0.5" fill="#0969da"/>
-                <rect x="12" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
-                <rect x="18" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
-                <rect x="24" y="28" width="4" height="4" rx="0.5" fill="#0969da"/>
-              </svg>
-            </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
-                Own or manage this building?
-              </p>
-              <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
-                Claim this property to respond to reviews and update building information.
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                if (!auth.user && isSupabaseConfigured()) {
-                  setReturnView("address-profile");
-                  setView("login");
-                  return;
-                }
-                window.location.href = `mailto:support@tenantshield.com?subject=${encodeURIComponent("Claim Building: " + addressResult.address)}&body=${encodeURIComponent("I would like to claim ownership/management of the building at " + addressResult.address + ".\n\nPlease verify my identity and grant me access to manage this property listing.")}`;
-              }}
-              style={{
-                padding: "10px 20px",
-                background: "#fff",
-                border: "1px solid #d0d7de",
-                borderRadius: 6,
-                color: "#1f2328",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Claim This Building
-            </button>
-          </div>
-
-          {/* Review CTA */}
-          <div
-            style={{
-              border: "2px solid #d4e4fb",
-              borderRadius: 10,
-              background: "linear-gradient(to bottom, #f0f6ff, #fff)",
-              padding: "36px 28px",
-              textAlign: "center",
-            }}
-          >
-            <h3 style={{ fontSize: 19, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
-              Have you lived here?
-            </h3>
-            <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 8px", lineHeight: 1.6 }}>
-              Your experience helps other renters make informed decisions.
-            </p>
-            <p style={{ fontSize: 13, color: "#8b949e", margin: "0 0 20px", lineHeight: 1.5 }}>
-              City records only tell part of the story. Share what it was actually like — maintenance response times, deposit fairness, communication, and more.
-            </p>
-            <button
-              onClick={goReview}
-              style={{
-                padding: "14px 36px",
-                background: "#1f6feb",
-                border: "none",
-                borderRadius: 8,
-                color: "#fff",
-                fontSize: 16,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                boxShadow: "0 2px 8px rgba(31,111,235,0.3)",
-              }}
-            >
-              Write a Review
-            </button>
-          </div>
         </div>
         );
       })()}
@@ -3870,397 +4119,223 @@ export default function TenantShield({ initialView, initialAddress, initialData,
       {/* ─── REVIEW ─── */}
       {view === "review" &&
         (submitted ? (
-          <div
-            style={{
-              maxWidth: 480,
-              margin: "0 auto",
-              padding: "60px 20px",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                border: "1px solid #e8ecf0",
-                borderRadius: 8,
-                background: "#fff",
-                padding: 36,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "#1a7f37",
-                  background: "#dafbe1",
-                  display: "inline-block",
-                  padding: "6px 14px",
-                  borderRadius: 20,
-                  marginBottom: 16,
-                }}
-              >
-                Review submitted
+          <div style={{ maxWidth: 480, margin: "0 auto", padding: "60px 20px", textAlign: "center" }}>
+            <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: 36 }}>
+              <div style={{ marginBottom: 12 }}>
+                <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="28" cy="28" r="26" fill="#dafbe1" stroke="#1a7f37" strokeWidth="2"/>
+                  <path d="M18 28l7 7 13-13" stroke="#1a7f37" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
-              <h2
-                style={{
-                  fontSize: 20,
-                  fontWeight: 700,
-                  color: "#1f2328",
-                  margin: "0 0 8px",
-                }}
-              >
-                Thank you for helping other renters.
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
+                Thank you!
               </h2>
-              <p
-                style={{
-                  fontSize: 14,
-                  color: "#57606a",
-                  margin: "0 0 24px",
-                  lineHeight: 1.6,
-                }}
-              >
-                All reviews on TenantShield are now unlocked for you.
+              <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 24px", lineHeight: 1.6 }}>
+                Your review helps other Chicago renters make better decisions. It will appear on the building page shortly.
               </p>
               <button
-                onClick={() => setView(selected ? "profile" : "home")}
+                onClick={() => {
+                  if (form.address) {
+                    window.location.href = `/address/${addressToSlug(form.address)}`;
+                  } else {
+                    setView("home");
+                  }
+                }}
                 style={{
-                  padding: "10px 24px",
-                  background: "#1f6feb",
-                  border: "none",
-                  borderRadius: 6,
-                  color: "#fff",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontSize: 14,
-                  fontFamily: "inherit",
+                  padding: "10px 24px", background: "#1f6feb", border: "none", borderRadius: 6,
+                  color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 14, fontFamily: "inherit",
                 }}
               >
-                {selected ? "Back to Landlord Profile" : "Start Searching"}
+                {form.address ? "View Building Page" : "Start Searching"}
               </button>
-
-              {/* Share your review */}
-              <div
-                style={{
-                  marginTop: 24,
-                  paddingTop: 20,
-                  borderTop: "1px solid #e8ecf0",
-                }}
-              >
-                <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 12px" }}>
-                  Spread the word — help other Chicago renters find this info
-                </p>
-                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                  <button
-                    onClick={() => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent("I just reviewed my landlord on TenantShield — check building violations and tenant reviews before you sign a lease in Chicago")}&url=${encodeURIComponent("https://mytenantshield.com")}`, "_blank", "width=600,height=400")}
-                    style={{ padding: "6px 12px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5, color: "#1da1f2" }}
-                    title="Share on X / Twitter"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                    Post
-                  </button>
-                  <button
-                    onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent("https://mytenantshield.com")}`, "_blank", "width=600,height=400")}
-                    style={{ padding: "6px 12px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5, color: "#1877f2" }}
-                    title="Share on Facebook"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                    Share
-                  </button>
-                  <button
-                    onClick={() => window.open(`https://www.reddit.com/submit?url=${encodeURIComponent("https://mytenantshield.com")}&title=${encodeURIComponent("I just reviewed my landlord on TenantShield — free tool to check building violations and tenant reviews for Chicago rentals")}`, "_blank", "width=600,height=600")}
-                    style={{ padding: "6px 12px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5, color: "#ff4500" }}
-                    title="Share on Reddit"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
-                    Share
-                  </button>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText("https://mytenantshield.com"); }}
-                    style={{ padding: "6px 12px", background: "#f6f8fa", border: "1px solid #e8ecf0", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5, color: "#57606a" }}
-                    title="Copy link"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                    Copy Link
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              maxWidth: 540,
-              margin: "0 auto",
-              padding: "24px 20px",
-            }}
-          >
-            <h1
-              style={{
-                fontSize: 20,
-                fontWeight: 700,
-                color: "#1f2328",
-                margin: "0 0 4px",
-              }}
-            >
-              Write a Review
+          <div style={{ maxWidth: 540, margin: "0 auto", padding: "24px 20px" }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+              Share Your Experience
             </h1>
-            <p
-              style={{
-                fontSize: 14,
-                color: "#57606a",
-                margin: "0 0 16px",
-              }}
-            >
-              Your review helps other Chicago renters make better decisions.
+            <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 20px" }}>
+              Takes about 30 seconds. No account needed.
             </p>
-            <div
-              style={{
-                background: "linear-gradient(135deg, #1a56db, #7c3aed)",
-                color: "#fff",
-                padding: "12px 16px",
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 600,
-                marginBottom: 20,
-                textAlign: "center",
-                lineHeight: 1.5,
-              }}
-            >
-              🎁 Every review this month enters you to win a $25 Amazon gift card! Winner drawn March 31st.
-            </div>
-            <div
-              style={{
-                border: "1px solid #e8ecf0",
-                borderRadius: 8,
-                background: "#fff",
-                padding: 24,
-              }}
-            >
-              <div style={{ marginBottom: 16 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#1f2328",
-                    marginBottom: 5,
-                  }}
-                >
-                  Landlord or Property Manager *
-                </label>
-                <input
-                  type="text"
-                  value={form.landlordName}
-                  onChange={(e) =>
-                    setForm({ ...form, landlordName: e.target.value })
-                  }
-                  placeholder="e.g. Landlord or management company name"
-                  style={inp}
-                />
+
+            <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: 24, position: "relative" }}>
+              {/* Honeypot — hidden from real users */}
+              <div style={{ position: "absolute", left: "-9999px", opacity: 0, height: 0, overflow: "hidden" }} aria-hidden="true">
+                <label htmlFor="ts_website">Website</label>
+                <input id="ts_website" type="text" name="website" tabIndex={-1} autoComplete="off"
+                  value={reviewHoneypot} onChange={(e) => setReviewHoneypot(e.target.value)} />
               </div>
-              <div style={{ marginBottom: 16 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#1f2328",
-                    marginBottom: 5,
-                  }}
-                >
-                  Rental Address
+
+              {/* Building Address with autocomplete */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 5 }}>
+                  Building Address *
                 </label>
                 <div style={{ position: "relative" }}>
                   <input
                     type="text"
                     value={form.address}
                     onChange={(e) => handleAddressChange(e.target.value)}
-                    onFocus={() => {
-                      if (addressSuggestions.length > 0) setShowAddressSuggestions(true);
-                    }}
-                    onBlur={() => {
-                      setTimeout(() => setShowAddressSuggestions(false), 200);
-                    }}
-                    placeholder="e.g. 1234 N Clark St, Chicago, IL"
+                    onFocus={() => { if (addressSuggestions.length > 0) setShowAddressSuggestions(true); }}
+                    onBlur={() => { setTimeout(() => setShowAddressSuggestions(false), 200); }}
+                    placeholder="Start typing an address..."
                     style={inp}
                     autoComplete="off"
                   />
                   {showAddressSuggestions && addressSuggestions.length > 0 && (
-                    <ul
-                      style={{
-                        position: "absolute",
-                        top: "100%",
-                        left: 0,
-                        right: 0,
-                        margin: 0,
-                        padding: 0,
-                        listStyle: "none",
-                        background: "#fff",
-                        border: "1px solid #d0d7de",
-                        borderTop: "none",
-                        borderRadius: "0 0 6px 6px",
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                        zIndex: 10,
-                        maxHeight: 200,
-                        overflowY: "auto",
-                      }}
-                    >
+                    <ul style={{
+                      position: "absolute", top: "100%", left: 0, right: 0, margin: 0, padding: 0, listStyle: "none",
+                      background: "#fff", border: "1px solid #d0d7de", borderTop: "none", borderRadius: "0 0 6px 6px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 10, maxHeight: 200, overflowY: "auto",
+                    }}>
                       {addressSuggestions.map((addr) => (
-                        <li
-                          key={addr}
-                          onMouseDown={() => {
-                            setForm((f) => ({ ...f, address: addr }));
-                            setShowAddressSuggestions(false);
-                          }}
-                          style={{
-                            padding: "8px 12px",
-                            fontSize: 14,
-                            color: "#1f2328",
-                            cursor: "pointer",
-                          }}
-                          onMouseEnter={(e) => {
-                            (e.currentTarget as HTMLElement).style.background = "#f6f8fa";
-                          }}
-                          onMouseLeave={(e) => {
-                            (e.currentTarget as HTMLElement).style.background = "#fff";
-                          }}
-                        >
-                          {addr}
-                        </li>
+                        <li key={addr}
+                          onMouseDown={() => { setForm((f) => ({ ...f, address: addr })); setShowAddressSuggestions(false); }}
+                          style={{ padding: "8px 12px", fontSize: 14, color: "#1f2328", cursor: "pointer" }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#f6f8fa"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "#fff"; }}
+                        >{addr}</li>
                       ))}
                     </ul>
                   )}
                 </div>
               </div>
-              <div style={{ marginBottom: 16 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#1f2328",
-                    marginBottom: 10,
-                  }}
-                >
-                  Ratings *
-                </label>
-                {(
-                  [
-                    ["maintenance", "Maintenance & Repairs"],
-                    ["communication", "Communication"],
-                    ["deposit", "Deposit Fairness"],
-                    ["honesty", "Listing Honesty"],
-                    ["overall", "Overall Experience"],
-                  ] as const
-                ).map(([k, l]) => (
-                  <div
-                    key={k}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginBottom: 8,
-                    }}
-                  >
-                    <span style={{ fontSize: 13, color: "#424a53" }}>
-                      {l}
-                    </span>
-                    <Stars
-                      rating={form[k]}
-                      interactive
-                      onChange={(v) => setForm({ ...form, [k]: v })}
-                      size={18}
-                    />
-                  </div>
-                ))}
-              </div>
+
+              {/* Overall Rating — large tap targets */}
               <div style={{ marginBottom: 20 }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#1f2328",
-                    marginBottom: 5,
-                  }}
-                >
-                  Your Experience *
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 8 }}>
+                  Overall Rating *
                 </label>
-                <textarea
-                  value={form.text}
-                  onChange={(e) =>
-                    setForm({ ...form, text: e.target.value })
-                  }
-                  placeholder="What should the next tenant know? Be specific about maintenance, deposits, lease accuracy, or anything else that mattered."
-                  rows={5}
-                  style={{
-                    ...inp,
-                    resize: "vertical" as const,
-                    lineHeight: 1.6,
-                  }}
-                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, overall: star }))}
+                      style={{
+                        width: 52, height: 52, borderRadius: 8,
+                        border: form.overall >= star ? "2px solid #f59e0b" : "2px solid #e8ecf0",
+                        background: form.overall >= star ? "#fef3c7" : "#fff",
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill={form.overall >= star ? "#f59e0b" : "none"} stroke={form.overall >= star ? "#f59e0b" : "#d0d7de"} strokeWidth="2">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+                {form.overall > 0 && (
+                  <div style={{ fontSize: 12, color: "#57606a", marginTop: 4 }}>
+                    {form.overall === 1 ? "Poor" : form.overall === 2 ? "Below Average" : form.overall === 3 ? "Average" : form.overall === 4 ? "Good" : "Excellent"}
+                  </div>
+                )}
               </div>
-              {auth.user && userProfile?.display_name && (
-                <div
-                  style={{
-                    marginBottom: 16,
-                    padding: "12px 14px",
-                    background: "#f6f8fa",
-                    borderRadius: 6,
-                    border: "1px solid #e8ecf0",
-                  }}
-                >
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      fontSize: 13,
-                      color: "#1f2328",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!postAnonymously}
-                      onChange={(e) => setPostAnonymously(!e.target.checked)}
-                      style={{ accentColor: "#1f6feb" }}
-                    />
-                    Post as <strong>{userProfile.display_name}</strong>
+
+              {/* How long + Would recommend — side by side */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 5 }}>
+                    How long did you live here?
                   </label>
-                  <div style={{ fontSize: 12, color: "#8b949e", marginTop: 4, marginLeft: 24 }}>
-                    {postAnonymously ? "Your review will appear as \"Anonymous Tenant\"" : `Your review will display your name${userProfile.avatar_url ? " and avatar" : ""}`}
+                  <select
+                    value={reviewDuration}
+                    onChange={(e) => setReviewDuration(e.target.value)}
+                    style={{ ...inp, appearance: "auto" as const }}
+                  >
+                    <option value="">Select...</option>
+                    <option value="< 6 months">Less than 6 months</option>
+                    <option value="6-12 months">6-12 months</option>
+                    <option value="1-2 years">1-2 years</option>
+                    <option value="2-5 years">2-5 years</option>
+                    <option value="5+ years">5+ years</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 5 }}>
+                    Would you recommend?
+                  </label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {([["Yes", true], ["No", false]] as const).map(([label, val]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setReviewRecommend(val)}
+                        style={{
+                          flex: 1, padding: "10px 0", borderRadius: 6,
+                          border: reviewRecommend === val ? `2px solid ${val ? "#1a7f37" : "#cf222e"}` : "2px solid #e8ecf0",
+                          background: reviewRecommend === val ? (val ? "#dafbe1" : "#ffebe9") : "#fff",
+                          color: reviewRecommend === val ? (val ? "#1a7f37" : "#cf222e") : "#57606a",
+                          fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              )}
+              </div>
+
+              {/* What was good */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 5 }}>
+                  What was good?
+                </label>
+                <input
+                  type="text"
+                  value={reviewGoodText}
+                  onChange={(e) => setReviewGoodText(e.target.value)}
+                  placeholder="quiet, good management, clean, great location"
+                  style={inp}
+                />
+              </div>
+
+              {/* What was bad */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 5 }}>
+                  What was bad?
+                </label>
+                <input
+                  type="text"
+                  value={reviewBadText}
+                  onChange={(e) => setReviewBadText(e.target.value)}
+                  placeholder="slow maintenance, pests, noisy neighbors"
+                  style={inp}
+                />
+              </div>
+
+              {/* Landlord/Management (optional) */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 5 }}>
+                  Landlord or Management Company
+                </label>
+                <input
+                  type="text"
+                  value={form.landlordName}
+                  onChange={(e) => setForm((f) => ({ ...f, landlordName: e.target.value }))}
+                  placeholder="e.g. Planned Property Management"
+                  style={inp}
+                />
+              </div>
+
               <button
                 onClick={submitReview}
-                disabled={
-                  !form.landlordName || !form.overall || !form.text
-                }
+                disabled={!form.address || !form.overall}
                 style={{
-                  width: "100%",
-                  padding: "12px 0",
-                  borderRadius: 6,
-                  border: "none",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor:
-                    form.landlordName && form.overall && form.text
-                      ? "pointer"
-                      : "not-allowed",
-                  fontFamily: "inherit",
-                  background:
-                    form.landlordName && form.overall && form.text
-                      ? "#1f6feb"
-                      : "#e8ecf0",
-                  color:
-                    form.landlordName && form.overall && form.text
-                      ? "#fff"
-                      : "#8b949e",
+                  width: "100%", padding: "14px 0", borderRadius: 8, border: "none",
+                  fontSize: 15, fontWeight: 700, fontFamily: "inherit",
+                  cursor: form.address && form.overall ? "pointer" : "not-allowed",
+                  background: form.address && form.overall ? "#1f6feb" : "#e8ecf0",
+                  color: form.address && form.overall ? "#fff" : "#8b949e",
                 }}
               >
                 Submit Review
               </button>
+              <p style={{ fontSize: 11, color: "#8b949e", textAlign: "center", marginTop: 10, marginBottom: 0 }}>
+                Reviews are posted anonymously. No account required.
+              </p>
             </div>
           </div>
         ))}
@@ -5093,6 +5168,68 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             Search Analytics →
           </a>
 
+          {/* Review Moderation Queue */}
+          <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", marginBottom: 24 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Review Moderation ({flaggedReviews.length} pending)
+            </h3>
+            {flaggedLoading ? (
+              <p style={{ fontSize: 13, color: "#8b949e" }}>Loading flagged reviews...</p>
+            ) : flaggedReviews.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#8b949e" }}>No reviews pending moderation</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {flaggedReviews.map((r) => (
+                  <div key={r.id} style={{ border: "1px solid #e8ecf0", borderRadius: 8, padding: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontSize: 16 }}>{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</span>
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+                            background: r.flag_reason === "profanity" ? "#ffeef0" : r.flag_reason === "all_caps" ? "#fff8e1" : "#f0f3f6",
+                            color: r.flag_reason === "profanity" ? "#cf222e" : r.flag_reason === "all_caps" ? "#9a6700" : "#57606a",
+                          }}>
+                            {r.flag_reason || "flagged"}
+                          </span>
+                        </div>
+                        {r.landlord_name && (
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", marginBottom: 4 }}>{r.landlord_name}</div>
+                        )}
+                        {r.good_text && <div style={{ fontSize: 13, color: "#1a7f37", marginBottom: 2 }}>Good: {r.good_text}</div>}
+                        {r.bad_text && <div style={{ fontSize: 13, color: "#cf222e", marginBottom: 2 }}>Bad: {r.bad_text}</div>}
+                        {r.text && !r.good_text && !r.bad_text && <div style={{ fontSize: 13, color: "#57606a", marginBottom: 2 }}>{r.text}</div>}
+                        <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4 }}>
+                          {r.author} · {r.duration_lived || "unknown duration"} · {r.would_recommend === true ? "Would recommend" : r.would_recommend === false ? "Would not recommend" : ""} · {new Date(r.created_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => moderateReview(r.id, "approve")}
+                          style={{
+                            padding: "6px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "1px solid #a8dab5",
+                            background: "#e6f4ea", color: "#1a7f37", cursor: "pointer",
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => moderateReview(r.id, "reject")}
+                          style={{
+                            padding: "6px 16px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "1px solid #f5c6cb",
+                            background: "#ffeef0", color: "#cf222e", cursor: "pointer",
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {adminLoading || !adminData ? (
             <div style={{ textAlign: "center", padding: "48px 0" }}>
               <span style={{ fontSize: 14, color: "#57606a" }}>Loading dashboard...</span>
@@ -5684,6 +5821,98 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             >
               Maybe later
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SMART REVIEW PROMPT BANNER ─── */}
+      {showReviewPrompt && (
+        <div style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          pointerEvents: "none",
+        }}>
+          <div style={{
+            maxWidth: 720,
+            margin: "0 auto",
+            padding: "0 16px 16px",
+            pointerEvents: "auto",
+          }}>
+            <div style={{
+              background: "#fff",
+              border: "1px solid #e8ecf0",
+              borderRadius: 12,
+              boxShadow: "0 -4px 24px rgba(0,0,0,0.1)",
+              padding: "16px 20px",
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              flexWrap: "wrap",
+              animation: "tsSlideUp 0.3s ease-out",
+            }}>
+              <style dangerouslySetInnerHTML={{ __html: `
+                @keyframes tsSlideUp {
+                  from { transform: translateY(100%); opacity: 0; }
+                  to { transform: translateY(0); opacity: 1; }
+                }
+              `}} />
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", margin: "0 0 2px" }}>
+                  Lived in a Chicago apartment?
+                </p>
+                <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.4 }}>
+                  Your experience helps other renters make better decisions.
+                </p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => {
+                    setShowReviewPrompt(false);
+                    goReview();
+                  }}
+                  style={{
+                    padding: "8px 18px",
+                    background: "#1f6feb",
+                    border: "none",
+                    borderRadius: 6,
+                    color: "#fff",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Share My Experience
+                </button>
+                <button
+                  onClick={() => {
+                    setShowReviewPrompt(false);
+                    document.cookie = "ts_review_prompt_dismissed=1; max-age=" + (14 * 24 * 60 * 60) + "; path=/; SameSite=Lax";
+                  }}
+                  aria-label="Dismiss"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: 6,
+                    color: "#8b949e",
+                    fontSize: 18,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
