@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { BASE_URL, SITEMAP_CHUNKS } from "@/lib/sitemapData";
 
-export const revalidate = 86400;
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const sitemaps = Array.from({ length: SITEMAP_CHUNKS }, (_, i) =>
