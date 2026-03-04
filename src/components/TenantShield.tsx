@@ -688,6 +688,10 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
   const [showGiveawayBanner, setShowGiveawayBanner] = useState(true);
   const [showReviewPrompt, setShowReviewPrompt] = useState(false);
+  const [showReportPrompt, setShowReportPrompt] = useState(false);
+  const [reportEmail, setReportEmail] = useState('');
+  const [reportStatus, setReportStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
+  const [reportMessage, setReportMessage] = useState('');
   const [adminReviewPage, setAdminReviewPage] = useState(0);
   const initialAddressLoaded = useRef(false);
   const [adminData, setAdminData] = useState<{
@@ -923,6 +927,19 @@ export default function TenantShield({ initialView, initialAddress, initialData,
       }
     }, 45000);
     return () => clearTimeout(timer);
+  }, [view, addressResult]);
+
+  // Report prompt: trigger after 3+ building page views
+  useEffect(() => {
+    if (view !== "address-profile" || !addressResult) return;
+    if (sessionStorage.getItem("ts_review_prompt_shown")) return;
+    if (sessionStorage.getItem("ts_report_prompt_shown")) return;
+    if (document.cookie.split("; ").some((c) => c === "ts_report_prompt_dismissed=1")) return;
+    const count = parseInt(sessionStorage.getItem("ts_building_views") || "0", 10);
+    if (count >= 3) {
+      sessionStorage.setItem("ts_report_prompt_shown", "1");
+      setShowReportPrompt(true);
+    }
   }, [view, addressResult]);
 
   // Handle browser back/forward buttons
@@ -5167,6 +5184,24 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           >
             Search Analytics →
           </a>
+          <a
+            href="/admin/email-captures"
+            style={{
+              display: "inline-block",
+              padding: "8px 16px",
+              background: "#e6f4ea",
+              border: "1px solid #a8dab5",
+              borderRadius: 6,
+              color: "#1a7f37",
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+              marginBottom: 24,
+              marginLeft: 8,
+            }}
+          >
+            Email Captures →
+          </a>
 
           {/* Review Moderation Queue */}
           <div style={{ border: "1px solid #e8ecf0", borderRadius: 8, background: "#fff", padding: "20px 24px", marginBottom: 24 }}>
@@ -5821,6 +5856,145 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             >
               Maybe later
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── REPORT PROMPT BANNER ─── */}
+      {showReportPrompt && !showReviewPrompt && (
+        <div style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          pointerEvents: "none",
+        }}>
+          <div style={{
+            maxWidth: 720,
+            margin: "0 auto",
+            padding: "0 16px 16px",
+            pointerEvents: "auto",
+          }}>
+            <div style={{
+              background: "#fff",
+              border: "1px solid #e8ecf0",
+              borderRadius: 12,
+              boxShadow: "0 -4px 24px rgba(0,0,0,0.1)",
+              padding: "16px 20px",
+              animation: "tsSlideUp 0.3s ease-out",
+            }}>
+              {reportStatus === "success" ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#1a7f37", margin: "0 0 4px" }}>
+                    Report sent! Check your inbox.
+                  </p>
+                  <p style={{ fontSize: 12, color: "#57606a", margin: 0 }}>{reportMessage}</p>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", margin: "0 0 2px" }}>
+                        Want a free building report?
+                      </p>
+                      <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.4 }}>
+                        {"We'll email you a complete breakdown of violations, complaints, and reviews for "}
+                        <strong>{addressResult?.address || "this building"}</strong>.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowReportPrompt(false);
+                        document.cookie = "ts_report_prompt_dismissed=1; max-age=" + (14 * 24 * 60 * 60) + "; path=/; SameSite=Lax";
+                      }}
+                      aria-label="Dismiss"
+                      style={{
+                        width: 32,
+                        height: 32,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "transparent",
+                        border: "none",
+                        borderRadius: 6,
+                        color: "#8b949e",
+                        fontSize: 18,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!reportEmail || reportStatus === "loading") return;
+                      setReportStatus("loading");
+                      setReportMessage("");
+                      try {
+                        const res = await fetch("/api/reports/request", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            email: reportEmail,
+                            address: addressResult?.address || "",
+                            buildingName: "",
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || "Request failed");
+                        setReportStatus("success");
+                        setReportMessage("Your PDF report is on its way!");
+                      } catch (err) {
+                        setReportStatus("error");
+                        setReportMessage(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+                      }
+                    }}
+                    style={{ display: "flex", gap: 8, alignItems: "center" }}
+                  >
+                    <input
+                      type="email"
+                      placeholder="your@email.com"
+                      value={reportEmail}
+                      onChange={(e) => setReportEmail(e.target.value)}
+                      required
+                      style={{
+                        flex: 1,
+                        padding: "8px 12px",
+                        border: "1px solid #d0d7de",
+                        borderRadius: 6,
+                        fontSize: 13,
+                        fontFamily: "inherit",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={reportStatus === "loading"}
+                      style={{
+                        padding: "8px 18px",
+                        background: reportStatus === "loading" ? "#8b949e" : "#1f6feb",
+                        border: "none",
+                        borderRadius: 6,
+                        color: "#fff",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: reportStatus === "loading" ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {reportStatus === "loading" ? "Sending…" : "Send My Report"}
+                    </button>
+                  </form>
+                  {reportStatus === "error" && (
+                    <p style={{ fontSize: 12, color: "#d1242f", margin: "6px 0 0" }}>{reportMessage}</p>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
