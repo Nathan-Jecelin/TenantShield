@@ -3212,6 +3212,28 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                   </div>
                 ))}
               </div>
+              {/* Most common issue types */}
+              {(() => {
+                const issueFreq: Record<string, number> = {};
+                for (const v of addressResult.violations) {
+                  const cat = v.inspection_category || v.violation_description;
+                  if (cat) issueFreq[cat.trim()] = (issueFreq[cat.trim()] || 0) + 1;
+                }
+                for (const c of addressResult.complaints.filter((c) => isBuildingRelated(c.sr_type))) {
+                  const t = c.sr_type;
+                  if (t) issueFreq[t.trim()] = (issueFreq[t.trim()] || 0) + 1;
+                }
+                const top = Object.entries(issueFreq)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 3)
+                  .map(([name]) => name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "));
+                if (top.length === 0) return null;
+                return (
+                  <p style={{ fontSize: 13, color: "#656d76", margin: "12px 0 0", lineHeight: 1.5 }}>
+                    Most common issues: {top.join(", ")}
+                  </p>
+                );
+              })()}
             </div>
           </div>
 
@@ -3277,15 +3299,45 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                   {claimInfo?.company_name ? ` This building is managed by ${claimInfo.company_name}.` : ""}
                   {" "}City of Chicago records show{" "}
                   {addressResult.violations.length === 0 && addressResult.complaints.length === 0
-                    ? "no building violations or 311 complaints on file"
+                    ? "no building violations or 311 complaints on file — a clean record"
                     : `${addressResult.violations.length} building violation${addressResult.violations.length !== 1 ? "s" : ""} and ${addressResult.complaints.length} 311 complaint${addressResult.complaints.length !== 1 ? "s" : ""}`
                   }.
+                  {/* Neighborhood comparison */}
+                  {nearbyBuildings && nearbyBuildings.length > 0 && (() => {
+                    const avgComplaints = nearbyBuildings.reduce((sum, b) => sum + b.complaintCount, 0) / nearbyBuildings.length;
+                    const thisComplaints = addressResult.complaints.length;
+                    if (thisComplaints === 0 && avgComplaints > 0) {
+                      return ` This is below the ${neighborhood || "neighborhood"} average of ${Math.round(avgComplaints)} complaints per building — a positive sign.`;
+                    } else if (thisComplaints > avgComplaints * 1.5 && avgComplaints > 0) {
+                      return ` This is above the ${neighborhood || "neighborhood"} average of ${Math.round(avgComplaints)} complaints per building.`;
+                    } else if (thisComplaints > 0 && avgComplaints > 0) {
+                      return ` This is roughly in line with the ${neighborhood || "neighborhood"} average of ${Math.round(avgComplaints)} complaints per building.`;
+                    }
+                    return "";
+                  })()}
+                  {/* Most recent violation type + date */}
                   {addressResult.violations.length > 0 && (() => {
                     const sorted = [...addressResult.violations].sort((a, b) =>
                       new Date(b.violation_date).getTime() - new Date(a.violation_date).getTime()
                     );
-                    const latest = new Date(sorted[0].violation_date);
-                    return ` The most recent violation was recorded in ${latest.toLocaleDateString("en-US", { month: "long", year: "numeric" })}.`;
+                    const latest = sorted[0];
+                    const date = new Date(latest.violation_date);
+                    const cat = latest.inspection_category || latest.violation_description || "";
+                    const catFormatted = cat ? cat.split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ") : "";
+                    return ` The most recent violation was ${catFormatted ? `a ${catFormatted} issue ` : ""}recorded in ${date.toLocaleDateString("en-US", { month: "long", year: "numeric" })}.`;
+                  })()}
+                  {/* Most common complaint category */}
+                  {addressResult.complaints.length > 0 && (() => {
+                    const bldgComplaints = addressResult.complaints.filter((c) => isBuildingRelated(c.sr_type));
+                    if (bldgComplaints.length === 0) return "";
+                    const freq: Record<string, number> = {};
+                    for (const c of bldgComplaints) {
+                      if (c.sr_type) freq[c.sr_type] = (freq[c.sr_type] || 0) + 1;
+                    }
+                    const topType = Object.entries(freq).sort((a, b) => b[1] - a[1])[0];
+                    if (!topType) return "";
+                    const name = topType[0].split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+                    return ` The most frequently reported complaint type is ${name}.`;
                   })()}
                 </p>
               </div>
