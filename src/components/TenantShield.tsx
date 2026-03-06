@@ -2076,6 +2076,56 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 )
               )}
             </div>
+
+            {/* Quick nav links */}
+            <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 24, flexWrap: "wrap" }}>
+              <a
+                href="/managers"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "8px 18px",
+                  background: "#f6f8fa",
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  color: "#1f6feb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                Browse Property Managers
+              </a>
+              <a
+                href="/neighborhoods"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "8px 18px",
+                  background: "#f6f8fa",
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  color: "#1f6feb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                  <circle cx="12" cy="10" r="3" />
+                </svg>
+                Browse Neighborhoods
+              </a>
+            </div>
           </div>
           <div
             style={{
