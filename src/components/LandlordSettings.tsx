@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSupabase } from "@/lib/supabase";
+import { companyNameToSlug } from "@/lib/slugs";
 
 interface LandlordProfile {
   id: string;
@@ -13,6 +14,14 @@ interface LandlordProfile {
   current_period_end: string | null;
   stripe_customer_id: string | null;
   verified: boolean;
+  slug: string | null;
+  bio: string | null;
+  website: string | null;
+  public_phone: string | null;
+  public_email: string | null;
+  logo_url: string | null;
+  years_in_business: number | null;
+  profile_visible: boolean;
 }
 
 export default function LandlordSettings() {
@@ -20,13 +29,27 @@ export default function LandlordSettings() {
   const [profile, setProfile] = useState<LandlordProfile | null | undefined>(undefined);
   const [upgrading, setUpgrading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    company_name: "",
+    bio: "",
+    website: "",
+    public_email: "",
+    public_phone: "",
+    years_in_business: "" as string,
+    profile_visible: true,
+    logo_url: "" as string,
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async (userId: string) => {
     const sb = getSupabase();
     if (!sb) return;
     const { data: prof } = await sb
       .from("landlord_profiles")
-      .select("id, company_name, contact_email, plan, plan_status, current_period_end, stripe_customer_id, verified")
+      .select("id, company_name, contact_email, plan, plan_status, current_period_end, stripe_customer_id, verified, slug, bio, website, public_phone, public_email, logo_url, years_in_business, profile_visible")
       .eq("user_id", userId)
       .maybeSingle();
     if (!prof) {
@@ -34,6 +57,16 @@ export default function LandlordSettings() {
       return;
     }
     setProfile(prof);
+    setProfileForm({
+      company_name: prof.company_name || "",
+      bio: prof.bio || "",
+      website: prof.website || "",
+      public_email: prof.public_email || "",
+      public_phone: prof.public_phone || "",
+      years_in_business: prof.years_in_business != null ? String(prof.years_in_business) : "",
+      profile_visible: prof.profile_visible ?? true,
+      logo_url: prof.logo_url || "",
+    });
   }, []);
 
   useEffect(() => {
@@ -80,6 +113,77 @@ export default function LandlordSettings() {
       }
     } catch {
       setPortalLoading(false);
+    }
+  }
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+    if (!file.type.startsWith("image/")) { alert("Please select an image file."); return; }
+    if (file.size > 2 * 1024 * 1024) { alert("Image must be under 2 MB."); return; }
+
+    setLogoUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${profile.id}/logo.${ext}`;
+      const sb = getSupabase()!;
+      const { error } = await sb.storage.from("logos").upload(path, file, { upsert: true });
+      if (error) { alert("Upload failed: " + error.message); return; }
+      const { data: urlData } = sb.storage.from("logos").getPublicUrl(path);
+      const publicUrl = urlData.publicUrl + "?t=" + Date.now();
+      setProfileForm((f) => ({ ...f, logo_url: publicUrl }));
+    } finally {
+      setLogoUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  async function handleProfileSave() {
+    if (!profile) return;
+    setProfileSaving(true);
+    setProfileSaved(false);
+    try {
+      const sb = getSupabase();
+      if (!sb) return;
+
+      // Auto-generate slug on first save if not set
+      let slug = profile.slug;
+      if (!slug && profileForm.company_name.trim()) {
+        slug = companyNameToSlug(profileForm.company_name.trim());
+      }
+
+      const updates: Record<string, unknown> = {
+        company_name: profileForm.company_name.trim() || null,
+        bio: profileForm.bio.trim().slice(0, 500) || null,
+        website: profileForm.website.trim() || null,
+        public_email: profileForm.public_email.trim() || null,
+        public_phone: profileForm.public_phone.trim() || null,
+        years_in_business: profileForm.years_in_business ? parseInt(profileForm.years_in_business, 10) || null : null,
+        profile_visible: profileForm.profile_visible,
+        logo_url: profileForm.logo_url || null,
+        updated_at: new Date().toISOString(),
+      };
+      // Only set slug if it wasn't already set
+      if (!profile.slug && slug) {
+        updates.slug = slug;
+      }
+
+      const { error } = await sb
+        .from("landlord_profiles")
+        .update(updates)
+        .eq("id", profile.id);
+
+      if (error) {
+        alert("Save failed: " + error.message);
+        return;
+      }
+
+      // Update local profile with new slug
+      setProfile((p) => p ? { ...p, ...updates, slug: updates.slug as string ?? p.slug } as LandlordProfile : p);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 3000);
+    } finally {
+      setProfileSaving(false);
     }
   }
 
@@ -248,6 +352,192 @@ export default function LandlordSettings() {
             </div>
           </div>
         </div>
+
+        {/* Public Profile section */}
+        <div style={{ ...cardStyle, marginTop: 24 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1f2328", margin: "0 0 16px" }}>
+            Public Profile
+          </h2>
+          <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 20px" }}>
+            This information is shown on your public management company profile page.
+          </p>
+
+          <div style={{ display: "grid", gap: 16 }}>
+            {/* Company Name */}
+            <div>
+              <label style={labelStyle}>Company Name</label>
+              <input
+                type="text"
+                value={profileForm.company_name}
+                onChange={(e) => setProfileForm((f) => ({ ...f, company_name: e.target.value }))}
+                placeholder="Acme Property Management"
+                style={inputStyle}
+              />
+            </div>
+
+            {/* Bio */}
+            <div>
+              <label style={labelStyle}>Bio / Description</label>
+              <textarea
+                value={profileForm.bio}
+                onChange={(e) => setProfileForm((f) => ({ ...f, bio: e.target.value.slice(0, 500) }))}
+                placeholder="Tell tenants about your company..."
+                rows={3}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
+              />
+              <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4 }}>
+                {profileForm.bio.length}/500 characters
+              </div>
+            </div>
+
+            {/* Website */}
+            <div>
+              <label style={labelStyle}>Website URL</label>
+              <input
+                type="text"
+                value={profileForm.website}
+                onChange={(e) => setProfileForm((f) => ({ ...f, website: e.target.value }))}
+                placeholder="https://example.com"
+                style={inputStyle}
+              />
+            </div>
+
+            {/* Public Email & Phone */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div>
+                <label style={labelStyle}>Public Contact Email</label>
+                <input
+                  type="email"
+                  value={profileForm.public_email}
+                  onChange={(e) => setProfileForm((f) => ({ ...f, public_email: e.target.value }))}
+                  placeholder="info@example.com"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Public Phone</label>
+                <input
+                  type="tel"
+                  value={profileForm.public_phone}
+                  onChange={(e) => setProfileForm((f) => ({ ...f, public_phone: e.target.value }))}
+                  placeholder="(312) 555-0100"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            {/* Years in Business */}
+            <div>
+              <label style={labelStyle}>Years in Business</label>
+              <input
+                type="number"
+                min="0"
+                max="200"
+                value={profileForm.years_in_business}
+                onChange={(e) => setProfileForm((f) => ({ ...f, years_in_business: e.target.value }))}
+                placeholder="10"
+                style={{ ...inputStyle, maxWidth: 120 }}
+              />
+            </div>
+
+            {/* Logo Upload */}
+            <div>
+              <label style={labelStyle}>Company Logo</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {profileForm.logo_url ? (
+                  <img
+                    src={profileForm.logo_url}
+                    alt="Logo"
+                    style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", border: "1px solid #e8ecf0" }}
+                  />
+                ) : (
+                  <div style={{
+                    width: 56, height: 56, borderRadius: 10, background: "#1f6feb",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 22, fontWeight: 700, color: "#fff",
+                  }}>
+                    {(profileForm.company_name || "?")[0].toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <button
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={logoUploading}
+                    style={{
+                      padding: "6px 14px",
+                      background: "none",
+                      border: "1px solid #d0d7de",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#57606a",
+                      cursor: "pointer",
+                      opacity: logoUploading ? 0.7 : 1,
+                    }}
+                  >
+                    {logoUploading ? "Uploading..." : "Upload Logo"}
+                  </button>
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    style={{ display: "none" }}
+                  />
+                  <p style={{ fontSize: 11, color: "#8b949e", margin: "4px 0 0" }}>Max 2 MB, JPG or PNG</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Profile Visible Toggle */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="checkbox"
+                checked={profileForm.profile_visible}
+                onChange={(e) => setProfileForm((f) => ({ ...f, profile_visible: e.target.checked }))}
+                id="profile_visible"
+                style={{ width: 16, height: 16, cursor: "pointer" }}
+              />
+              <label htmlFor="profile_visible" style={{ fontSize: 13, color: "#1f2328", cursor: "pointer" }}>
+                Profile visible to the public
+              </label>
+            </div>
+
+            {/* Save + View Profile */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button
+                onClick={handleProfileSave}
+                disabled={profileSaving}
+                style={{
+                  padding: "8px 20px",
+                  background: "#1f6feb",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  opacity: profileSaving ? 0.7 : 1,
+                }}
+              >
+                {profileSaving ? "Saving..." : "Save Profile"}
+              </button>
+              {profileSaved && (
+                <span style={{ fontSize: 13, color: "#1a7f37", fontWeight: 600 }}>Saved!</span>
+              )}
+              {(profile.slug || profileForm.company_name) && (
+                <a
+                  href={`/manager/${profile.slug || companyNameToSlug(profileForm.company_name)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 13, color: "#0969da", textDecoration: "none", fontWeight: 600 }}
+                >
+                  View Public Profile &rarr;
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       <Footer />
@@ -407,4 +697,23 @@ const featureCellStyle: React.CSSProperties = {
   padding: "8px 12px",
   borderBottom: "1px solid #f0f3f6",
   color: "#1f2328",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 13,
+  fontWeight: 600,
+  color: "#1f2328",
+  marginBottom: 6,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 12px",
+  border: "1px solid #d0d7de",
+  borderRadius: 6,
+  fontSize: 14,
+  color: "#1f2328",
+  background: "#fff",
+  boxSizing: "border-box",
 };

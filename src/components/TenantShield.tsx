@@ -679,8 +679,19 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [activeTab, setActiveTab] = useState<"overview" | "violations" | "complaints" | "reviews" | "permits">("overview");
   const [watchEmail, setWatchEmail] = useState("");
   const [watchStatus, setWatchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean; plan?: string } | null>(null);
+  const [claimInfo, setClaimInfo] = useState<{ company_name: string | null; claimant_role: string; verification_status: string; claimed_at: string; verified: boolean; plan?: string; slug?: string | null; logo_url?: string | null; avg_rating?: number; response_rate?: number } | null>(null);
   const [addressResponses, setAddressResponses] = useState<Record<string, { response_text: string; created_at: string }>>({});
+  const [tenantReviews, setTenantReviews] = useState<{
+    id: string;
+    rating: number;
+    text: string | null;
+    good_text: string | null;
+    bad_text: string | null;
+    duration_lived: string | null;
+    would_recommend: boolean | null;
+    created_at: string;
+  }[]>([]);
+  const [reviewResponses, setReviewResponses] = useState<Record<string, { response_text: string; created_at: string; company_name: string | null }>>({});
   const [watchMessage, setWatchMessage] = useState("");
   const [neighborhoodResult, setNeighborhoodResult] = useState<NeighborhoodResult | null>(null);
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
@@ -998,6 +1009,30 @@ export default function TenantShield({ initialView, initialAddress, initialData,
     return () => { cancelled = true; };
   }, [view, addressResult]);
 
+  // Fetch tenant reviews for address profile
+  useEffect(() => {
+    if (view !== "address-profile" || !addressResult) {
+      setTenantReviews([]);
+      setReviewResponses({});
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/building-reviews?address=${encodeURIComponent(addressResult.address)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d.reviews) setTenantReviews(d.reviews);
+        if (d.responses) setReviewResponses(d.responses);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTenantReviews([]);
+          setReviewResponses({});
+        }
+      });
+    return () => { cancelled = true; };
+  }, [view, addressResult]);
+
   // Fetch landlord responses for address profile violations
   useEffect(() => {
     if (view !== "address-profile" || !addressResult) {
@@ -1012,11 +1047,11 @@ export default function TenantShield({ initialView, initialAddress, initialData,
 
     // Find verified claimed buildings matching this address, then get their responses
     (async () => {
-      // Find claimed_buildings that match this address and are verified
+      // Find claimed_buildings that match this address and are approved
       const { data: buildings } = await sb
         .from("claimed_buildings")
         .select("id")
-        .eq("verified", true)
+        .eq("verification_status", "approved")
         .in("address", variants);
       if (cancelled || !buildings || buildings.length === 0) return;
 
@@ -3171,7 +3206,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                   </h1>
                   <p style={{ fontSize: 14, color: "#57606a", margin: 0 }}>
                     {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL · Public Records
-                    {claimInfo?.company_name ? ` · Managed by ${claimInfo.company_name}` : ""}
+                    {claimInfo?.company_name ? <>{" · Managed by "}{claimInfo.slug ? <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>{claimInfo.company_name}</a> : claimInfo.company_name}</> : ""}
                   </p>
                 </div>
                 <div style={{
@@ -3296,7 +3331,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 </h2>
                 <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: 0 }}>
                   {addressResult.address} is located in {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL.
-                  {claimInfo?.company_name ? ` This building is managed by ${claimInfo.company_name}.` : ""}
+                  {claimInfo?.company_name ? <>{" This building is managed by "}{claimInfo.slug ? <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>{claimInfo.company_name}</a> : claimInfo.company_name}{"."}</> : ""}
                   {" "}City of Chicago records show{" "}
                   {addressResult.violations.length === 0 && addressResult.complaints.length === 0
                     ? "no building violations or 311 complaints on file — a clean record"
@@ -3517,8 +3552,8 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 </div>
               )}
 
-              {/* Building Claim Info */}
-              {claimInfo && (
+              {/* Building Claim Info / Managed By Card */}
+              {claimInfo ? (
                 <div
                   style={{
                     border: `1px solid ${claimInfo.verification_status === "approved" ? "#a7f3d0" : "#fde68a"}`,
@@ -3532,15 +3567,38 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                     flexWrap: "wrap",
                   }}
                 >
+                  {/* Logo or initial */}
+                  {claimInfo.logo_url ? (
+                    <img
+                      src={claimInfo.logo_url}
+                      alt={claimInfo.company_name || "Logo"}
+                      style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover", border: "1px solid #e8ecf0", flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: 48, height: 48, borderRadius: 10, background: "#1f6feb",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 20, fontWeight: 700, color: "#fff", flexShrink: 0,
+                    }}>
+                      {(claimInfo.company_name || "P")[0].toUpperCase()}
+                    </div>
+                  )}
                   <div style={{ flex: 1, minWidth: 200 }}>
                     <p style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 4px", display: "flex", alignItems: "center", gap: 6 }}>
-                      {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" && (
+                      {claimInfo.verification_status === "approved" && (
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="#1a7f37" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
                           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                           <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                         </svg>
                       )}
-                      Managed by {claimInfo.company_name || "Property Owner"}
+                      Managed by{" "}
+                      {claimInfo.slug ? (
+                        <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>
+                          {claimInfo.company_name || "Property Owner"}
+                        </a>
+                      ) : (
+                        claimInfo.company_name || "Property Owner"
+                      )}
                     </p>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 13, color: "#57606a" }}>
@@ -3553,14 +3611,52 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                           fontWeight: 600,
                           padding: "2px 8px",
                           borderRadius: 10,
-                          background: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#d1fae5" : claimInfo.verification_status === "approved" ? "#e8ecf0" : "#fef3c7",
-                          color: claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "#065f46" : claimInfo.verification_status === "approved" ? "#57606a" : "#92400e",
+                          background: claimInfo.verification_status === "approved" ? "#d1fae5" : "#fef3c7",
+                          color: claimInfo.verification_status === "approved" ? "#065f46" : "#92400e",
                         }}
                       >
-                        {claimInfo.verification_status === "approved" && claimInfo.plan === "pro" ? "Verified" : claimInfo.verification_status === "approved" ? "Claimed" : "Pending Verification"}
+                        {claimInfo.verification_status === "approved" ? "Verified Management" : "Pending Verification"}
                       </span>
+                      {claimInfo.avg_rating !== undefined && claimInfo.avg_rating > 0 && (
+                        <span style={{
+                          display: "inline-block",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 10,
+                          background: claimInfo.avg_rating >= 4 ? "#dafbe1" : claimInfo.avg_rating >= 3 ? "#fff8c5" : "#ffebe9",
+                          color: claimInfo.avg_rating >= 4 ? "#1a7f37" : claimInfo.avg_rating >= 3 ? "#9a6700" : "#cf222e",
+                        }}>
+                          {claimInfo.avg_rating.toFixed(1)} avg
+                        </span>
+                      )}
+                      {claimInfo.response_rate !== undefined && claimInfo.response_rate > 0 && (
+                        <span style={{ fontSize: 11, color: "#57606a" }}>
+                          {claimInfo.response_rate}% response rate
+                        </span>
+                      )}
                     </div>
                   </div>
+                </div>
+              ) : !claimInfo && view === "address-profile" && addressResult && (
+                <div
+                  style={{
+                    border: "1px solid #e8ecf0",
+                    borderRadius: 8,
+                    background: "#f6f8fa",
+                    padding: "16px 28px",
+                    marginBottom: 16,
+                  }}
+                >
+                  <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 6px" }}>
+                    This building&apos;s management has not been verified.
+                  </p>
+                  <a
+                    href="/landlord/signup"
+                    style={{ fontSize: 13, color: "#0969da", textDecoration: "none", fontWeight: 600 }}
+                  >
+                    Are you the owner or manager? Claim this building &rarr;
+                  </a>
                 </div>
               )}
 
@@ -3718,7 +3814,14 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                             background: "#f0fdf4",
                             borderRadius: "0 6px 6px 0",
                           }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="#1a7f37" style={{ flexShrink: 0 }}>
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              </svg>
+                              Management Response
+                              <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 8, background: "#d1fae5", color: "#065f46" }}>Verified</span>
+                            </div>
                             <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[v.id].response_text}</p>
                             <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[v.id].created_at)}</div>
                           </div>
@@ -3873,7 +3976,14 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                             background: "#f0fdf4",
                             borderRadius: "0 6px 6px 0",
                           }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Landlord Response</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="#1a7f37" style={{ flexShrink: 0 }}>
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              </svg>
+                              Management Response
+                              <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 8, background: "#d1fae5", color: "#065f46" }}>Verified</span>
+                            </div>
                             <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{addressResponses[`sr_${c.sr_number}`].response_text}</p>
                             <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(addressResponses[`sr_${c.sr_number}`].created_at)}</div>
                           </div>
@@ -3910,6 +4020,87 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           {/* ═══ REVIEWS TAB ═══ */}
           {activeTab === "reviews" && (
             <>
+              {/* Tenant Reviews */}
+              {tenantReviews.length > 0 && (
+                <div style={{
+                  border: "1px solid #e8ecf0",
+                  borderRadius: 8,
+                  background: "#fff",
+                  padding: "20px 28px",
+                  marginBottom: 16,
+                }}>
+                  <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Tenant Reviews ({tenantReviews.length})
+                  </h2>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                    {tenantReviews.map((r, idx) => (
+                      <div key={r.id} style={{
+                        padding: "14px 0",
+                        borderTop: idx > 0 ? "1px solid #e8ecf0" : "none",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <div style={{ display: "flex", gap: 2 }}>
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <span key={star} style={{ fontSize: 16, color: star <= r.rating ? "#f59e0b" : "#d0d7de" }}>★</span>
+                            ))}
+                          </div>
+                          <span style={{ fontSize: 12, color: "#8b949e" }}>{formatDate(r.created_at)}</span>
+                          {r.would_recommend !== null && (
+                            <span style={{
+                              fontSize: 11, fontWeight: 600, padding: "1px 8px", borderRadius: 10,
+                              background: r.would_recommend ? "#dafbe1" : "#ffebe9",
+                              color: r.would_recommend ? "#1a7f37" : "#cf222e",
+                            }}>
+                              {r.would_recommend ? "Would recommend" : "Would not recommend"}
+                            </span>
+                          )}
+                        </div>
+                        {r.good_text && (
+                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
+                            <span style={{ fontWeight: 600, color: "#1a7f37" }}>Good: </span>{r.good_text}
+                          </p>
+                        )}
+                        {r.bad_text && (
+                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
+                            <span style={{ fontWeight: 600, color: "#cf222e" }}>Bad: </span>{r.bad_text}
+                          </p>
+                        )}
+                        {r.text && !r.good_text && !r.bad_text && (
+                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{r.text}</p>
+                        )}
+                        {r.duration_lived && (
+                          <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4 }}>Lived here: {r.duration_lived}</div>
+                        )}
+                        {/* Management Response */}
+                        {reviewResponses[r.id] && (
+                          <div style={{
+                            marginTop: 10,
+                            padding: "10px 14px",
+                            borderLeft: "3px solid #1a7f37",
+                            background: "#f0fdf4",
+                            borderRadius: "0 6px 6px 0",
+                          }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="#1a7f37" style={{ flexShrink: 0 }}>
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              </svg>
+                              Management Response
+                              <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 8, background: "#d1fae5", color: "#065f46" }}>Verified</span>
+                            </div>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{reviewResponses[r.id].response_text}</p>
+                            <div style={{ fontSize: 11, color: "#8b949e" }}>
+                              {reviewResponses[r.id].company_name && <span>{reviewResponses[r.id].company_name} · </span>}
+                              {formatDate(reviewResponses[r.id].created_at)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Full Community Reports */}
               {communityReview && communityReview.relevant_review_count > 0 ? (
                 <div style={{

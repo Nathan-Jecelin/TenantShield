@@ -13,6 +13,17 @@ export function addressToSlug(address: string): string {
  * Convert a URL slug back to a display address.
  * "1550-n-lake-shore-dr" → "1550 N Lake Shore Dr"
  */
+/**
+ * Convert a company name to a URL slug.
+ * "Acme Property Management" → "acme-property-management"
+ */
+export function companyNameToSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export function slugToAddress(slug: string): string {
   const STREET_ABBREVS: Record<string, string> = {
     st: "St",

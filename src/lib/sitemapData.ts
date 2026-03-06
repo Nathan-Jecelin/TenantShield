@@ -75,6 +75,7 @@ export async function getNonAddressPages(): Promise<SitemapEntry[]> {
   const staticPages: SitemapEntry[] = [
     { url: BASE_URL, lastModified: now, changeFrequency: "daily", priority: 1.0 },
     { url: `${BASE_URL}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
+    { url: `${BASE_URL}/managers`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
     { url: `${BASE_URL}/privacy`, lastModified: new Date("2026-02-01").toISOString(), changeFrequency: "yearly", priority: 0.3 },
     { url: `${BASE_URL}/terms`, lastModified: new Date("2026-02-01").toISOString(), changeFrequency: "yearly", priority: 0.3 },
   ];
@@ -106,7 +107,26 @@ export async function getNonAddressPages(): Promise<SitemapEntry[]> {
     }
   }
 
-  return [...staticPages, ...neighborhoodPages, ...blogPages];
+  let managerPages: SitemapEntry[] = [];
+  if (sb) {
+    const { data: managerProfiles } = await sb
+      .from("landlord_profiles")
+      .select("slug, updated_at")
+      .eq("profile_visible", true)
+      .not("slug", "is", null);
+    if (managerProfiles) {
+      managerPages = managerProfiles
+        .filter((p) => p.slug)
+        .map((p) => ({
+          url: `${BASE_URL}/manager/${p.slug}`,
+          lastModified: p.updated_at ? new Date(p.updated_at).toISOString() : now,
+          changeFrequency: "weekly",
+          priority: 0.7,
+        }));
+    }
+  }
+
+  return [...staticPages, ...neighborhoodPages, ...blogPages, ...managerPages];
 }
 
 export function entriesToXml(entries: SitemapEntry[]): string {
