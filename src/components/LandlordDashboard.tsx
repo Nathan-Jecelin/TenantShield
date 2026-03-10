@@ -271,7 +271,7 @@ export default function LandlordDashboard() {
         window.location.href = data.url;
       } else {
         console.error("Checkout error:", data);
-        setError(data.error || "Failed to start checkout. Please try again.");
+        setError(`Checkout failed (${res.status}): ${JSON.stringify(data)}`);
         setUpgrading(false);
       }
     } catch (err) {
