@@ -1221,6 +1221,7 @@ function AlertIcon({ type }: { type: string }) {
     violation: "V",
     "311_complaint": "C",
     review: "R",
+    claim_approved: "A",
   };
   return (
     <div

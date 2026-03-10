@@ -18,6 +18,8 @@ interface Claim {
   verification_status: string;
   claimant_role: string;
   units: number | null;
+  claimant_name: string | null;
+  proof_of_ownership: string | null;
   claimed_at: string;
   landlord_profiles: {
     company_name: string | null;
@@ -47,7 +49,7 @@ export default function AdminClaims() {
     const { data } = await sb
       .from("claimed_buildings")
       .select(
-        "id, address, verification_status, claimant_role, units, claimed_at, landlord_profiles(company_name, contact_email)"
+        "id, address, verification_status, claimant_role, units, claimant_name, proof_of_ownership, claimed_at, landlord_profiles(company_name, contact_email)"
       )
       .order("claimed_at", { ascending: false });
     if (data) setClaims(data as unknown as Claim[]);
@@ -68,6 +70,24 @@ export default function AdminClaims() {
       .from("claimed_buildings")
       .update({ verification_status: newStatus })
       .eq("id", claimId);
+
+    // Send alert + email when approving a claim
+    if (newStatus === "approved") {
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        await fetch("/api/landlord-alerts/notify", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session?.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ type: "claim_approved", claimId }),
+        });
+      } catch (err) {
+        console.error("Failed to send claim approval alert:", err);
+      }
+    }
+
     await loadClaims();
     setUpdating(null);
   }
@@ -188,11 +208,30 @@ export default function AdminClaims() {
                       {lp?.contact_email ? ` · ${lp.contact_email}` : ""}
                     </div>
                     <div style={{ fontSize: 11, color: "#8b949e", marginTop: 2 }}>
+                      {c.claimant_name ? `${c.claimant_name} · ` : ""}
                       {roleLabel(c.claimant_role)}
                       {c.units ? ` · ${c.units} units` : ""}
                       {" · Claimed "}
                       {formatDate(c.claimed_at)}
                     </div>
+                    {c.proof_of_ownership && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: "8px 12px",
+                          background: "#f6f8fa",
+                          border: "1px solid #e8ecf0",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: "#1f2328",
+                          lineHeight: 1.5,
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, color: "#57606a" }}>Proof: </span>
+                        {c.proof_of_ownership}
+                      </div>
+                    )}
                   </div>
 
                   {/* Right: badge + actions */}

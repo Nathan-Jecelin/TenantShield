@@ -19,7 +19,7 @@ interface LandlordAlert {
   created_at: string;
 }
 
-type FilterTab = "all" | "violation" | "311_complaint";
+type FilterTab = "all" | "violation" | "311_complaint" | "review";
 
 /* ------------------------------------------------------------------ */
 /* Main component                                                     */
@@ -280,6 +280,7 @@ export default function LandlordAlerts() {
               { key: "all", label: "All" },
               { key: "violation", label: "Violations" },
               { key: "311_complaint", label: "Complaints" },
+              { key: "review", label: "Reviews" },
             ] as { key: FilterTab; label: string }[]
           ).map((tab) => (
             <button
@@ -512,6 +513,7 @@ function AlertIcon({ type }: { type: string }) {
     violation: "V",
     "311_complaint": "C",
     review: "R",
+    claim_approved: "A",
   };
   return (
     <div
