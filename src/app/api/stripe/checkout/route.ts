@@ -34,8 +34,10 @@ export async function POST(req: NextRequest) {
   );
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    console.error('Auth failed:', { authError });
+    return NextResponse.json({ error: 'Unauthorized', detail: authError?.message }, { status: 401 });
   }
+  console.log('Checkout: authenticated user', user.id);
 
   const supabaseServer = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,7 +51,8 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (profError || !profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    console.error('Profile lookup failed:', { userId: user.id, profError });
+    return NextResponse.json({ error: 'Profile not found', detail: profError?.message || 'No row returned', userId: user.id }, { status: 404 });
   }
 
   const stripe = getStripe();
