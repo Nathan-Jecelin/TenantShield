@@ -82,7 +82,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     name: 'Enterprise',
     price: 249,
     stripePriceId: 'price_1T9Xge2WWu3gNfPm6EFXRkoN',
-    maxBuildings: 999,
+    maxBuildings: Infinity,
     features: ENTERPRISE_FEATURES,
     description: 'Unlimited buildings, API access & custom branding',
   },

@@ -293,7 +293,7 @@ export default function LandlordSettings() {
                 </p>
               )}
               <p style={{ fontSize: 12, color: "#57606a", margin: isPaid && profile.current_period_end ? "4px 0 0" : 0 }}>
-                Up to {getMaxBuildings(profile.plan)} building{getMaxBuildings(profile.plan) !== 1 ? "s" : ""} · {currentPlan.description}
+                {getMaxBuildings(profile.plan) === Infinity ? "Unlimited buildings" : `Up to ${getMaxBuildings(profile.plan)} building${getMaxBuildings(profile.plan) !== 1 ? "s" : ""}`} · {currentPlan.description}
               </p>
             </div>
 
@@ -363,7 +363,7 @@ export default function LandlordSettings() {
                       ${plan.price}<span style={{ fontSize: 13, fontWeight: 400, color: "#57606a" }}>/mo</span>
                     </div>
                     <div style={{ fontSize: 12, color: "#57606a", margin: "8px 0 4px" }}>
-                      Up to {plan.maxBuildings === 999 ? "unlimited" : plan.maxBuildings} buildings
+                      {plan.maxBuildings === Infinity ? "Unlimited" : `Up to ${plan.maxBuildings}`} buildings
                     </div>
                     <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 14 }}>
                       {plan.description}

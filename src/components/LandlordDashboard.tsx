@@ -534,7 +534,7 @@ export default function LandlordDashboard() {
             }}
           >
             <p style={{ fontSize: 13, color: "#1e40af", margin: 0, fontWeight: 500 }}>
-              {PLANS[profile.plan as PlanId]?.name || profile.plan} plan — ${PLANS[profile.plan as PlanId]?.price || 0}/mo · Up to {getMaxBuildings(profile.plan)} buildings
+              {PLANS[profile.plan as PlanId]?.name || profile.plan} plan — ${PLANS[profile.plan as PlanId]?.price || 0}/mo · {getMaxBuildings(profile.plan) === Infinity ? "Unlimited" : `Up to ${getMaxBuildings(profile.plan)}`} buildings
             </p>
             <button
               onClick={handleManageBilling}
