@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSupabase } from "@/lib/supabase";
 import { companyNameToSlug } from "@/lib/slugs";
+import { PLANS, PAID_PLANS, getMaxBuildings, type PlanId } from "@/lib/plans";
 
 interface LandlordProfile {
   id: string;
@@ -78,7 +79,7 @@ export default function LandlordSettings() {
     loadData(auth.user.id);
   }, [auth.loading, auth.user, loadData]);
 
-  async function handleUpgrade() {
+  async function handleUpgrade(priceId: string) {
     setUpgrading(true);
     try {
       const sb = getSupabase();
@@ -86,7 +87,11 @@ export default function LandlordSettings() {
       const { data: { session } } = await sb.auth.getSession();
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session?.access_token}` },
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ priceId }),
       });
       const data = await res.json();
       if (data.url) {
@@ -207,7 +212,8 @@ export default function LandlordSettings() {
     );
   }
 
-  const isPro = profile.plan === "pro";
+  const isPaid = profile.plan !== "free";
+  const currentPlan = PLANS[profile.plan as PlanId] || PLANS.free;
 
   return (
     <div style={pageStyle}>
@@ -238,15 +244,16 @@ export default function LandlordSettings() {
             Billing &amp; Subscription
           </h2>
 
+          {/* Current plan summary */}
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
               padding: "16px 20px",
-              background: isPro ? "linear-gradient(135deg, #dbeafe 0%, #d1fae5 100%)" : "#f6f8fa",
+              background: isPaid ? "linear-gradient(135deg, #dbeafe 0%, #d1fae5 100%)" : "#f6f8fa",
               borderRadius: 8,
-              border: isPro ? "1px solid #93c5fd" : "1px solid #e8ecf0",
+              border: isPaid ? "1px solid #93c5fd" : "1px solid #e8ecf0",
               flexWrap: "wrap",
               gap: 12,
             }}
@@ -257,10 +264,10 @@ export default function LandlordSettings() {
                   style={{
                     fontSize: 14,
                     fontWeight: 700,
-                    color: isPro ? "#1e40af" : "#57606a",
+                    color: isPaid ? "#1e40af" : "#57606a",
                   }}
                 >
-                  {isPro ? "Pro Plan" : "Free Plan"}
+                  {currentPlan.name} Plan
                 </span>
                 <span
                   style={{
@@ -268,31 +275,29 @@ export default function LandlordSettings() {
                     fontWeight: 600,
                     padding: "2px 8px",
                     borderRadius: 10,
-                    background: isPro ? "#bfdbfe" : "#e8ecf0",
-                    color: isPro ? "#1e40af" : "#57606a",
+                    background: isPaid ? "#bfdbfe" : "#e8ecf0",
+                    color: isPaid ? "#1e40af" : "#57606a",
                   }}
                 >
-                  {isPro ? "$49/mo" : "$0/mo"}
+                  ${currentPlan.price}/mo
                 </span>
               </div>
-              {isPro && profile.current_period_end && (
+              {isPaid && profile.current_period_end && (
                 <p style={{ fontSize: 12, color: "#57606a", margin: 0 }}>
                   Next billing date: {new Date(profile.current_period_end).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
                 </p>
               )}
-              {isPro && profile.plan_status === "past_due" && (
+              {isPaid && profile.plan_status === "past_due" && (
                 <p style={{ fontSize: 12, color: "#cf222e", margin: "4px 0 0", fontWeight: 600 }}>
                   Payment past due — please update your billing info.
                 </p>
               )}
-              {!isPro && (
-                <p style={{ fontSize: 12, color: "#57606a", margin: 0 }}>
-                  1 building, violations, complaints, building score
-                </p>
-              )}
+              <p style={{ fontSize: 12, color: "#57606a", margin: isPaid && profile.current_period_end ? "4px 0 0" : 0 }}>
+                Up to {getMaxBuildings(profile.plan)} building{getMaxBuildings(profile.plan) !== 1 ? "s" : ""} · {currentPlan.description}
+              </p>
             </div>
 
-            {isPro ? (
+            {isPaid && (
               <button
                 onClick={handleManageBilling}
                 disabled={portalLoading}
@@ -310,45 +315,118 @@ export default function LandlordSettings() {
               >
                 {portalLoading ? "Loading..." : "Manage Billing"}
               </button>
-            ) : (
-              <button
-                onClick={handleUpgrade}
-                disabled={upgrading}
-                style={{
-                  padding: "8px 18px",
-                  background: "#1f6feb",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  opacity: upgrading ? 0.7 : 1,
-                }}
-              >
-                {upgrading ? "Loading..." : "Upgrade to Pro — $49/mo"}
-              </button>
             )}
           </div>
 
-          {/* Feature comparison */}
+          {/* Pricing cards */}
           <div style={{ marginTop: 20 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: "#57606a", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              {isPaid ? "Change Plan" : "Choose a Plan"}
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+              {PAID_PLANS.map((plan) => {
+                const isCurrent = profile.plan === plan.id;
+                return (
+                  <div
+                    key={plan.id}
+                    style={{
+                      background: isCurrent ? "linear-gradient(135deg, #eff6ff, #ecfdf5)" : "#fff",
+                      border: isCurrent ? "2px solid #1f6feb" : plan.id === "portfolio" ? "2px solid #93c5fd" : "1px solid #e8ecf0",
+                      borderRadius: 8,
+                      padding: "20px 16px",
+                      textAlign: "center",
+                      position: "relative",
+                    }}
+                  >
+                    {isCurrent && (
+                      <div style={{
+                        position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)",
+                        background: "#1f6feb", color: "#fff", fontSize: 10, fontWeight: 700,
+                        padding: "2px 10px", borderRadius: 10, whiteSpace: "nowrap",
+                      }}>
+                        Current Plan
+                      </div>
+                    )}
+                    {!isCurrent && plan.id === "portfolio" && (
+                      <div style={{
+                        position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)",
+                        background: "#93c5fd", color: "#1e40af", fontSize: 10, fontWeight: 700,
+                        padding: "2px 10px", borderRadius: 10, whiteSpace: "nowrap",
+                      }}>
+                        Most Popular
+                      </div>
+                    )}
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", marginBottom: 4 }}>
+                      {plan.name}
+                    </div>
+                    <div style={{ fontSize: 26, fontWeight: 700, color: "#1f2328" }}>
+                      ${plan.price}<span style={{ fontSize: 13, fontWeight: 400, color: "#57606a" }}>/mo</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#57606a", margin: "8px 0 4px" }}>
+                      Up to {plan.maxBuildings === 999 ? "unlimited" : plan.maxBuildings} buildings
+                    </div>
+                    <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 14 }}>
+                      {plan.description}
+                    </div>
+                    {isCurrent ? (
+                      <button
+                        onClick={handleManageBilling}
+                        disabled={portalLoading}
+                        style={{
+                          padding: "8px 16px", background: "none", color: "#57606a",
+                          border: "1px solid #d0d7de", borderRadius: 6, fontSize: 12,
+                          fontWeight: 600, cursor: "pointer", width: "100%",
+                          opacity: portalLoading ? 0.7 : 1,
+                        }}
+                      >
+                        Manage
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => isPaid ? handleManageBilling() : handleUpgrade(plan.stripePriceId!)}
+                        disabled={upgrading || portalLoading}
+                        style={{
+                          padding: "8px 16px",
+                          background: plan.id === "portfolio" ? "#1f6feb" : "none",
+                          color: plan.id === "portfolio" ? "#fff" : "#1f6feb",
+                          border: plan.id === "portfolio" ? "none" : "1px solid #1f6feb",
+                          borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          cursor: "pointer", width: "100%",
+                          opacity: upgrading || portalLoading ? 0.7 : 1,
+                        }}
+                      >
+                        {isPaid ? "Switch Plan" : "Get Started"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Feature comparison */}
+          <div style={{ marginTop: 24 }}>
             <h3 style={{ fontSize: 13, fontWeight: 600, color: "#57606a", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
               Plan Features
             </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0", fontSize: 13 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0", fontSize: 13 }}>
               <div style={featureHeaderStyle}>Feature</div>
-              <div style={{ ...featureHeaderStyle, textAlign: "center" }}>Free</div>
-              <div style={{ ...featureHeaderStyle, textAlign: "center" }}>Pro</div>
+              <div style={{ ...featureHeaderStyle, textAlign: "center", minWidth: 60 }}>Free</div>
+              <div style={{ ...featureHeaderStyle, textAlign: "center", minWidth: 60 }}>Pro</div>
+              <div style={{ ...featureHeaderStyle, textAlign: "center", minWidth: 60 }}>Portfolio</div>
+              <div style={{ ...featureHeaderStyle, textAlign: "center", minWidth: 60 }}>Enterprise</div>
 
-              <FeatureRow label="View violations" free pro />
-              <FeatureRow label="View complaints" free pro />
-              <FeatureRow label="Building score" free pro />
-              <FeatureRow label="Claim buildings" free="1" pro="Unlimited" />
-              <FeatureRow label="Alerts" pro />
-              <FeatureRow label="Respond to violations" pro />
-              <FeatureRow label="Verified badge" pro />
-              <FeatureRow label="Neighborhood benchmarks" pro />
+              <FeatureRow label="Buildings" cols={["1", "5", "25", "Unlimited"]} />
+              <FeatureRow label="View violations" cols={["✓", "✓", "✓", "✓"]} />
+              <FeatureRow label="View complaints" cols={["✓", "✓", "✓", "✓"]} />
+              <FeatureRow label="Building score" cols={["✓", "✓", "✓", "✓"]} />
+              <FeatureRow label="Alerts" cols={["—", "✓", "✓", "✓"]} />
+              <FeatureRow label="Respond to violations" cols={["—", "✓", "✓", "✓"]} />
+              <FeatureRow label="Verified badge" cols={["—", "✓", "✓", "✓"]} />
+              <FeatureRow label="Benchmarks" cols={["—", "—", "✓", "✓"]} />
+              <FeatureRow label="Priority support" cols={["—", "—", "✓", "✓"]} />
+              <FeatureRow label="API access" cols={["—", "—", "—", "✓"]} />
+              <FeatureRow label="Custom branding" cols={["—", "—", "—", "✓"]} />
             </div>
           </div>
         </div>
@@ -545,16 +623,22 @@ export default function LandlordSettings() {
   );
 }
 
-function FeatureRow({ label, free, pro }: { label: string; free?: boolean | string; pro?: boolean | string }) {
+function FeatureRow({ label, cols }: { label: string; cols: string[] }) {
   return (
     <>
       <div style={featureCellStyle}>{label}</div>
-      <div style={{ ...featureCellStyle, textAlign: "center" }}>
-        {free === true ? "✓" : free === false || free === undefined ? "—" : free}
-      </div>
-      <div style={{ ...featureCellStyle, textAlign: "center", color: pro ? "#1a7f37" : "#8b949e" }}>
-        {pro === true ? "✓" : pro === false || pro === undefined ? "—" : pro}
-      </div>
+      {cols.map((val, i) => (
+        <div
+          key={i}
+          style={{
+            ...featureCellStyle,
+            textAlign: "center",
+            color: val === "—" ? "#8b949e" : val === "✓" ? "#1a7f37" : "#1f2328",
+          }}
+        >
+          {val}
+        </div>
+      ))}
     </>
   );
 }

@@ -12,7 +12,7 @@ import {
   fetchBuildingPermits,
 } from "@/lib/chicagoData";
 import { addressToSlug } from "@/lib/slugs";
-import { canAccess, MAX_FREE_BUILDINGS } from "@/lib/plans";
+import { canAccess, getMaxBuildings, PLANS, PAID_PLANS, type PlanId } from "@/lib/plans";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -61,6 +61,14 @@ export default function LandlordDashboard() {
   );
   const [buildings, setBuildings] = useState<ClaimedBuilding[]>([]);
   const [alerts, setAlerts] = useState<LandlordAlert[]>([]);
+  const [dashStats, setDashStats] = useState<{
+    totalReviews: number;
+    avgRating: number;
+    newReviewsThisWeek: number;
+    totalViolations: number;
+    openComplaints: number;
+    totalPageViews: number;
+  } | null>(null);
 
   // Claim flow state
   const [claimMode, setClaimMode] = useState(false);
@@ -72,6 +80,8 @@ export default function LandlordDashboard() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [claimRole, setClaimRole] = useState("owner");
   const [claimUnits, setClaimUnits] = useState("");
+  const [claimantName, setClaimantName] = useState("");
+  const [proofOfOwnership, setProofOfOwnership] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -88,7 +98,7 @@ export default function LandlordDashboard() {
         .eq("user_id", userId)
         .maybeSingle();
       if (!prof) {
-        window.location.href = "/landlord/signup";
+        window.location.href = "/landlord/login";
         return;
       }
       setProfile(prof);
@@ -118,10 +128,29 @@ export default function LandlordDashboard() {
   useEffect(() => {
     if (auth.loading) return;
     if (!auth.user) {
-      window.location.href = "/landlord/signup";
+      window.location.href = "/landlord/login";
       return;
     }
     loadData(auth.user.id);
+
+    // Fetch dashboard stats
+    (async () => {
+      try {
+        const sb = getSupabase();
+        if (!sb) return;
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session) return;
+        const res = await fetch("/api/landlord/stats", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDashStats(data);
+        }
+      } catch {
+        // Stats are non-critical
+      }
+    })();
   }, [auth.loading, auth.user, loadData]);
 
   /* ---- Address search with debounce ---- */
@@ -183,6 +212,8 @@ export default function LandlordDashboard() {
       address: previewAddress,
       claimant_role: claimRole,
       units: claimUnits ? parseInt(claimUnits, 10) : null,
+      claimant_name: claimantName.trim() || null,
+      proof_of_ownership: proofOfOwnership.trim() || null,
       verification_status: "pending",
     });
     if (err) {
@@ -201,6 +232,8 @@ export default function LandlordDashboard() {
       setPreviewData(null);
       setClaimRole("owner");
       setClaimUnits("");
+      setClaimantName("");
+      setProofOfOwnership("");
       setSuccessMsg("Building claimed! Verification is pending.");
       loadData(auth.user!.id);
     }
@@ -211,20 +244,51 @@ export default function LandlordDashboard() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("upgraded") === "true") {
-      setSuccessMsg("Welcome to Pro! You now have access to all features.");
+      setSuccessMsg("Welcome! Your subscription is now active.");
       window.history.replaceState({}, "", window.location.pathname);
       if (auth.user) loadData(auth.user.id);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ---- Upgrade to Pro ---- */
-  async function handleUpgrade() {
+  /* ---- Upgrade / change plan ---- */
+  async function handleUpgrade(priceId: string) {
+    setUpgrading(true);
+    setError(null);
+    try {
+      const sb = getSupabase();
+      if (!sb) { setUpgrading(false); return; }
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ priceId }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        console.error("Checkout error:", data);
+        setError(data.error || "Failed to start checkout. Please try again.");
+        setUpgrading(false);
+      }
+    } catch (err) {
+      console.error("Checkout error:", err);
+      setError("Failed to start checkout. Please try again.");
+      setUpgrading(false);
+    }
+  }
+
+  /* ---- Manage billing via Stripe portal ---- */
+  async function handleManageBilling() {
     setUpgrading(true);
     try {
       const sb = getSupabase();
       if (!sb) return;
       const { data: { session } } = await sb.auth.getSession();
-      const res = await fetch("/api/stripe/checkout", {
+      const res = await fetch("/api/stripe/portal", {
         method: "POST",
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
@@ -306,7 +370,7 @@ export default function LandlordDashboard() {
               </p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {profile.plan === "pro" ? (
+              {profile.plan !== "free" ? (
                 <span
                   style={{
                     display: "inline-block",
@@ -314,11 +378,15 @@ export default function LandlordDashboard() {
                     borderRadius: 12,
                     fontSize: 11,
                     fontWeight: 600,
-                    background: "linear-gradient(135deg, #1f6feb, #1a7f37)",
+                    background: profile.plan === "enterprise"
+                      ? "linear-gradient(135deg, #7c3aed, #1f6feb)"
+                      : profile.plan === "portfolio"
+                        ? "linear-gradient(135deg, #1f6feb, #1a7f37)"
+                        : "#1f6feb",
                     color: "#fff",
                   }}
                 >
-                  Pro
+                  {PLANS[profile.plan as PlanId]?.name || profile.plan}
                 </span>
               ) : (
                 <span style={badgeStyle("#e8ecf0", "#57606a")}>Free</span>
@@ -339,13 +407,118 @@ export default function LandlordDashboard() {
             margin: "20px 0",
           }}
         >
-          <StatCard label="Buildings" value={buildings.length} />
-          <StatCard label="Pending Claims" value={pendingCount} />
-          <StatCard label="Alerts" value={alerts.length} />
+          <StatCard
+            label="Total Reviews"
+            value={dashStats?.totalReviews ?? "—"}
+            sub={dashStats?.newReviewsThisWeek ? `+${dashStats.newReviewsThisWeek} this week` : undefined}
+          />
+          <StatCard
+            label="Avg Rating"
+            value={dashStats?.avgRating ? `${dashStats.avgRating}/5` : "—"}
+          />
+          <StatCard
+            label="Page Views"
+            value={dashStats?.totalPageViews ?? "—"}
+          />
+          <StatCard
+            label="Buildings"
+            value={buildings.length}
+            sub={pendingCount > 0 ? `${pendingCount} pending` : undefined}
+          />
+          <StatCard
+            label="Violations"
+            value={dashStats?.totalViolations ?? "—"}
+          />
+          <StatCard
+            label="311 Complaints"
+            value={dashStats?.openComplaints ?? "—"}
+          />
         </div>
 
         {/* Upgrade banner for free users */}
         {profile.plan === "free" && (
+          <div
+            style={{
+              padding: "20px 24px",
+              background: "linear-gradient(135deg, #eff6ff 0%, #ecfdf5 100%)",
+              border: "1px solid #93c5fd",
+              borderRadius: 8,
+              marginBottom: 20,
+            }}
+          >
+            <p style={{ fontSize: 14, color: "#1e40af", margin: "0 0 16px", fontWeight: 600 }}>
+              Upgrade your plan to unlock more buildings, alerts, and premium features
+            </p>
+            {error && (
+              <p style={{ fontSize: 13, color: "#cf222e", margin: "0 0 12px", fontWeight: 500 }}>
+                {error}
+              </p>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {PAID_PLANS.map((plan) => (
+                <div
+                  key={plan.id}
+                  style={{
+                    background: "#fff",
+                    border: plan.id === "portfolio" ? "2px solid #1f6feb" : "1px solid #d0d7de",
+                    borderRadius: 8,
+                    padding: "16px 14px",
+                    textAlign: "center",
+                    position: "relative",
+                  }}
+                >
+                  {plan.id === "portfolio" && (
+                    <div style={{
+                      position: "absolute",
+                      top: -10,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "#1f6feb",
+                      color: "#fff",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "2px 10px",
+                      borderRadius: 10,
+                      whiteSpace: "nowrap",
+                    }}>
+                      Most Popular
+                    </div>
+                  )}
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1f2328", marginBottom: 4 }}>
+                    {plan.name}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "#1f2328" }}>
+                    ${plan.price}<span style={{ fontSize: 12, fontWeight: 400, color: "#57606a" }}>/mo</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#57606a", margin: "6px 0 12px" }}>
+                    {plan.description}
+                  </div>
+                  <button
+                    onClick={() => handleUpgrade(plan.stripePriceId!)}
+                    disabled={upgrading}
+                    style={{
+                      padding: "7px 16px",
+                      background: plan.id === "portfolio" ? "#1f6feb" : "none",
+                      color: plan.id === "portfolio" ? "#fff" : "#1f6feb",
+                      border: plan.id === "portfolio" ? "none" : "1px solid #1f6feb",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      opacity: upgrading ? 0.7 : 1,
+                      width: "100%",
+                    }}
+                  >
+                    {upgrading ? "..." : "Get Started"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Manage subscription for paid users */}
+        {profile.plan !== "free" && (
           <div
             style={{
               padding: "14px 20px",
@@ -361,16 +534,16 @@ export default function LandlordDashboard() {
             }}
           >
             <p style={{ fontSize: 13, color: "#1e40af", margin: 0, fontWeight: 500 }}>
-              You&apos;re on the Free plan. Upgrade to Pro for alerts, responses, and unlimited buildings — $49/mo
+              {PLANS[profile.plan as PlanId]?.name || profile.plan} plan — ${PLANS[profile.plan as PlanId]?.price || 0}/mo · Up to {getMaxBuildings(profile.plan)} buildings
             </p>
             <button
-              onClick={handleUpgrade}
+              onClick={handleManageBilling}
               disabled={upgrading}
               style={{
                 padding: "8px 18px",
-                background: "#1f6feb",
-                color: "#fff",
-                border: "none",
+                background: "none",
+                color: "#1e40af",
+                border: "1px solid #93c5fd",
                 borderRadius: 6,
                 fontSize: 13,
                 fontWeight: 600,
@@ -379,7 +552,7 @@ export default function LandlordDashboard() {
                 whiteSpace: "nowrap",
               }}
             >
-              {upgrading ? "Loading..." : "Upgrade"}
+              {upgrading ? "Loading..." : "Manage Subscription"}
             </button>
           </div>
         )}
@@ -416,9 +589,9 @@ export default function LandlordDashboard() {
             Your Buildings
           </h2>
           {!claimMode && (
-            profile.plan !== "pro" && buildings.length >= MAX_FREE_BUILDINGS ? (
+            buildings.length >= getMaxBuildings(profile.plan) ? (
               <button
-                onClick={handleUpgrade}
+                onClick={handleManageBilling}
                 disabled={upgrading}
                 style={{
                   ...primaryBtnStyle,
@@ -538,6 +711,8 @@ export default function LandlordDashboard() {
                   setSearchResults([]);
                   setPreviewAddress(null);
                   setPreviewData(null);
+                  setClaimantName("");
+                  setProofOfOwnership("");
                   setError(null);
                 }}
                 style={{
@@ -738,6 +913,34 @@ export default function LandlordDashboard() {
                     />
                   </label>
                 </div>
+                <label style={{ ...labelStyle, marginBottom: 16 }}>
+                  Your Name
+                  <input
+                    type="text"
+                    value={claimantName}
+                    onChange={(e) => setClaimantName(e.target.value)}
+                    placeholder="Full legal name"
+                    style={inputStyle}
+                    required
+                  />
+                </label>
+                <label style={{ ...labelStyle, marginBottom: 16 }}>
+                  Proof of Ownership
+                  <textarea
+                    value={proofOfOwnership}
+                    onChange={(e) => setProofOfOwnership(e.target.value)}
+                    placeholder="Describe your proof of ownership (e.g. deed reference, property tax bill, management agreement details)"
+                    style={{
+                      ...inputStyle,
+                      minHeight: 80,
+                      resize: "vertical",
+                    }}
+                    required
+                  />
+                  <span style={{ fontSize: 11, color: "#8b949e", marginTop: 4, display: "block" }}>
+                    Our team will review this to verify your claim.
+                  </span>
+                </label>
                 {error && (
                   <p
                     style={{
@@ -956,7 +1159,7 @@ function Footer() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
     <div
       style={{
@@ -980,6 +1183,11 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <div style={{ fontSize: 12, color: "#57606a", marginTop: 6 }}>
         {label}
       </div>
+      {sub && (
+        <div style={{ fontSize: 11, color: "#1a7f37", marginTop: 4, fontWeight: 600 }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { getPlanByPriceId } from '@/lib/plans';
 import Stripe from 'stripe';
 
 function getSubscriptionPeriodEnd(subscription: Stripe.Subscription): string | null {
@@ -15,6 +16,16 @@ function getSubscriptionIdFromInvoice(invoice: Stripe.Invoice): string | null {
   const sub = invoice.parent?.subscription_details?.subscription;
   if (!sub) return null;
   return typeof sub === 'string' ? sub : sub.id;
+}
+
+function resolvePlanFromSubscription(subscription: Stripe.Subscription): string {
+  const priceId = subscription.items?.data?.[0]?.price?.id;
+  if (priceId) {
+    const plan = getPlanByPriceId(priceId);
+    if (plan) return plan;
+  }
+  // Fallback for legacy subscriptions
+  return 'professional';
 }
 
 export async function POST(req: NextRequest) {
@@ -54,10 +65,11 @@ export async function POST(req: NextRequest) {
         const profileId = subscription.metadata.landlord_profile_id;
         if (profileId) {
           const periodEnd = getSubscriptionPeriodEnd(subscription);
+          const plan = resolvePlanFromSubscription(subscription);
           await supabase
             .from('landlord_profiles')
             .update({
-              plan: 'pro',
+              plan,
               plan_status: 'active',
               stripe_customer_id: customerId,
               stripe_subscription_id: subscriptionId,
@@ -65,6 +77,28 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', profileId);
         }
+      }
+      break;
+    }
+
+    case 'customer.subscription.updated': {
+      const subscription = event.data.object as Stripe.Subscription;
+      const profileId = subscription.metadata.landlord_profile_id;
+      if (profileId) {
+        const periodEnd = getSubscriptionPeriodEnd(subscription);
+        const plan = resolvePlanFromSubscription(subscription);
+        const status = subscription.status === 'active' ? 'active'
+          : subscription.status === 'past_due' ? 'past_due'
+          : subscription.status === 'canceled' ? 'canceled'
+          : 'active';
+        await supabase
+          .from('landlord_profiles')
+          .update({
+            plan,
+            plan_status: status,
+            ...(periodEnd && { current_period_end: periodEnd }),
+          })
+          .eq('id', profileId);
       }
       break;
     }

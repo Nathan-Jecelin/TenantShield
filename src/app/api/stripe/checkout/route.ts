@@ -1,12 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/stripe';
+import { PAID_PLANS } from '@/lib/plans';
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '');
   if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  let body: { priceId?: string } = {};
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Missing priceId' }, { status: 400 });
+  }
+
+  const { priceId } = body;
+  if (!priceId) {
+    return NextResponse.json({ error: 'Missing priceId' }, { status: 400 });
+  }
+
+  // Validate the priceId is one of our known plans
+  const validPriceIds = PAID_PLANS.map((p) => p.stripePriceId);
+  if (!validPriceIds.includes(priceId)) {
+    return NextResponse.json({ error: 'Invalid priceId' }, { status: 400 });
   }
 
   const supabase = createClient(
@@ -53,7 +72,7 @@ export async function POST(req: NextRequest) {
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
-    line_items: [{ price: process.env.STRIPE_PRICE_ID!, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${origin}/landlord/dashboard?upgraded=true`,
     cancel_url: `${origin}/landlord/dashboard`,
     subscription_data: {
