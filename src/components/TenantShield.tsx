@@ -103,6 +103,22 @@ function formatDateTime(dateStr: string): string {
     + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
 function isSupabaseConfigured(): boolean {
   return getSupabase() !== null;
 }
@@ -628,6 +644,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Landlord[]>([]);
   const [selected, setSelected] = useState<Landlord | null>(null);
+  const [recentReviews, setRecentReviews] = useState<{ id: string; rating: number; good_text: string | null; bad_text: string | null; created_at: string; address: string; duration_lived: string | null }[]>([]);
   const [hasReviewed, setHasReviewed] = useState(false);
   const [showGate, setShowGate] = useState(false);
   const [landlords, setLandlords] = useState<Landlord[]>(SEED_LANDLORDS);
@@ -867,6 +884,14 @@ export default function TenantShield({ initialView, initialAddress, initialData,
         if (data.length > 0) setLandlords(data);
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  // Fetch recent reviews for homepage
+  useEffect(() => {
+    fetch("/api/reviews/recent")
+      .then((r) => r.json())
+      .then((d) => { if (d.reviews) setRecentReviews(d.reviews); })
+      .catch(() => {});
   }, []);
 
   // Load initial address data when rendered from /address/[slug] route
@@ -2164,6 +2189,119 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               ))}
             </div>
           </div>
+          {/* Recent Reviews */}
+          <div style={{ padding: "48px 20px", maxWidth: 720, margin: "0 auto" }}>
+            {recentReviews.length > 0 ? (
+              <>
+                <h2 style={{ fontSize: 22, fontWeight: 700, textAlign: "center", color: "#1f2328", marginBottom: 8 }}>
+                  Recent Reviews
+                </h2>
+                <p style={{ fontSize: 14, color: "#57606a", textAlign: "center", margin: "0 0 28px" }}>
+                  Real feedback from Chicago renters
+                </p>
+                <div style={{ display: "grid", gap: 16 }}>
+                  {recentReviews.map((rv) => {
+                    const snippet = rv.good_text || rv.bad_text || "";
+                    const truncated = snippet.length > 120 ? snippet.slice(0, 120) + "..." : snippet;
+                    const ago = timeAgo(rv.created_at);
+                    const slug = addressToSlug(rv.address);
+                    return (
+                      <a
+                        key={rv.id}
+                        href={`/address/${slug}`}
+                        style={{
+                          display: "block",
+                          background: "#fff",
+                          border: "1px solid #e8ecf0",
+                          borderRadius: 10,
+                          padding: "18px 20px",
+                          textDecoration: "none",
+                          transition: "border-color 0.15s",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#93c5fd")}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e8ecf0")}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                              <span style={{ fontSize: 14, letterSpacing: 1, color: "#f59e0b" }}>
+                                {"\u2605".repeat(rv.rating)}{"\u2606".repeat(5 - rv.rating)}
+                              </span>
+                              <span style={{ fontSize: 12, color: "#8b949e" }}>{ago}</span>
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", marginBottom: 6 }}>
+                              {rv.address}
+                            </div>
+                            {truncated && (
+                              <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
+                                &ldquo;{truncated}&rdquo;
+                              </p>
+                            )}
+                          </div>
+                          {rv.duration_lived && (
+                            <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", marginTop: 2 }}>
+                              Lived: {rv.duration_lived}
+                            </span>
+                          )}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+                <div style={{ textAlign: "center", marginTop: 24 }}>
+                  <button
+                    onClick={goReview}
+                    style={{
+                      padding: "10px 28px",
+                      background: "#1f6feb",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Write a Review
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{
+                textAlign: "center",
+                padding: "40px 24px",
+                background: "#fff",
+                border: "1px solid #e8ecf0",
+                borderRadius: 12,
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 16 }}>&#127968;</div>
+                <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 10px" }}>
+                  Be the first to review your building
+                </h2>
+                <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 24px", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
+                  Help the next renter know what they&apos;re getting into. Share your experience — it only takes a minute.
+                </p>
+                <button
+                  onClick={goReview}
+                  style={{
+                    padding: "12px 32px",
+                    background: "#1f6feb",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 15,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Write a Review
+                </button>
+              </div>
+            )}
+          </div>
+
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 20px" }}>
             <NewsletterSignup />
           </div>
