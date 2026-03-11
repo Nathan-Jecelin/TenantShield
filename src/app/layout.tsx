@@ -16,12 +16,21 @@ export const metadata: Metadata = {
     siteName: "TenantShield",
     type: "website",
     locale: "en_US",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "TenantShield — Research your landlord before you sign the lease",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "TenantShield — Look Up Building Violations for Any Chicago Address",
     description:
       "Free tool to search building violations, 311 complaints, and tenant reviews for Chicago rental properties before you sign a lease.",
+    images: ["/twitter-image"],
   },
   verification: {
     google: "qomIJH8TPWRU4iNpGuiN7uMeCM1MXxM9GOd9zvH6Hjg",
