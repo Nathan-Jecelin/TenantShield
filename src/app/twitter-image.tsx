@@ -1,2 +1,8 @@
-// Re-export the OpenGraph image for Twitter cards
-export { default, alt, size, contentType, runtime } from './opengraph-image';
+import OGImage, { alt as ogAlt, size as ogSize, contentType as ogContentType } from './opengraph-image';
+
+export const runtime = 'edge';
+export const alt = ogAlt;
+export const size = ogSize;
+export const contentType = ogContentType;
+
+export default OGImage;
