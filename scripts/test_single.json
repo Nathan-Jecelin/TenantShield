@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-03-04T01:11:46.914885+00:00",
+  "disclaimer": "Community reports are sourced from public forums and do not represent the views of TenantShield.",
+  "building_count": 1,
+  "buildings": [
+    {
+      "address": "730 S Clark St Chicago IL",
+      "building_name": "The Grant",
+      "management_company": "Planned Property Management",
+      "raw_review_count": 317,
+      "relevant_review_count": 5,
+      "overall_sentiment": "Mixed",
+      "overall_summary": "Tenant experiences at The Grant (730 S Clark St) appear to be mixed based on available mentions. While some residents express satisfaction with the building, unit quality, and location, others have raised concerns about management practices and lease-related issues. The building benefits from an excellent location near Grant Park and transit options, but experiences seem to vary depending on individual circumstances and interactions with management.",
+      "key_themes": [
+        "management",
+        "location",
+        "lease_terms",
+        "amenities"
+      ],
+      "reports": [
+        {
+          "summary": "A tenant is seeking to sublease their apartment at 730 S Clark St unit 405, praising the great location in Printer's Row.",
+          "source": "Reddit r/chicagoapartments",
+          "date": "2024-06-08",
+          "sentiment": "Positive"
+        },
+        {
+          "summary": "A resident mentions living at the building for a year with their wife and loving both the apartment and building, now looking to sublease due to purchasing a home.",
+          "source": "Reddit r/chicagoapartments",
+          "date": "2024-06-07",
+          "sentiment": "Positive"
+        },
+        {
+          "summary": "A management company asks tenants for lease renewal decisions over 4 months early, with policies requiring notice by March for a June lease end.",
+          "source": "Reddit r/chicagoapartments",
+          "date": "2022-02-16",
+          "sentiment": "Negative"
+        },
+        {
+          "summary": "A resident reports living at Burnham Pointe for about 6 months and expressing love for the place, praising the well-maintained building, responsive management, apartment quality, and excellent location.",
+          "source": "Google Reviews",
+          "date": "2021-06-11",
+          "sentiment": "Positive"
+        },
+        {
+          "summary": "A former tenant expresses strong satisfaction with their year-long stay, praising the helpful staff, smooth move-in process, spacious apartments, convenient parking, and ideal location, stating they would still live there if circumstances hadn't required moving.",
+          "source": "Google Reviews",
+          "date": "2024-07-31",
+          "sentiment": "Positive"
+        }
+      ],
+      "processed_at": "2026-03-04T01:11:46.086281+00:00",
+      "disclaimer": "Community reports are sourced from public forums and do not represent the views of TenantShield."
+    }
+  ]
+}

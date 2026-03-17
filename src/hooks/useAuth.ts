@@ -6,10 +6,11 @@ export interface Auth {
   user: User | null;
   loading: boolean;
   error: string | null;
-  signUp: (email: string, password: string) => Promise<boolean>;
+  signUp: (email: string, password: string, metadata?: Record<string, string>) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<boolean>;
   clearError: () => void;
 }
 
@@ -41,11 +42,18 @@ export function useAuth(): Auth {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string): Promise<boolean> => {
+  const signUp = useCallback(async (email: string, password: string, metadata?: Record<string, string>): Promise<boolean> => {
     const supabase = getSupabase();
     if (!supabase) return false;
     setError(null);
-    const { error: err } = await supabase.auth.signUp({ email, password });
+    const { error: err } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: metadata,
+        emailRedirectTo: window.location.origin + "/landlord/verify-email",
+      },
+    });
     if (err) {
       setError(err.message);
       return false;
@@ -82,7 +90,21 @@ export function useAuth(): Auth {
     await supabase.auth.signOut();
   }, []);
 
+  const resetPassword = useCallback(async (email: string): Promise<boolean> => {
+    const supabase = getSupabase();
+    if (!supabase) return false;
+    setError(null);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + "/landlord/reset-password",
+    });
+    if (err) {
+      setError(err.message);
+      return false;
+    }
+    return true;
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
 
-  return { user, loading, error, signUp, signIn, signInWithGoogle, signOut, clearError };
+  return { user, loading, error, signUp, signIn, signInWithGoogle, signOut, resetPassword, clearError };
 }

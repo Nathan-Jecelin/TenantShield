@@ -123,6 +123,130 @@ function isSupabaseConfigured(): boolean {
   return getSupabase() !== null;
 }
 
+// ─── BUILDING SCORE ───
+
+interface ScoreBreakdown {
+  openViolations: number;
+  openViolationPoints: number;
+  recentOpenViolations: number;
+  resolvedViolations: number;
+  resolvedViolationPoints: number;
+  unresolvedComplaints: number;
+  unresolvedComplaintPoints: number;
+  resolvedComplaints: number;
+  resolvedComplaintPoints: number;
+  reviewPoints: number;
+  avgRating?: number;
+  reviewCount: number;
+}
+
+function computeBuildingScore(
+  violations: BuildingViolation[],
+  complaints: ServiceRequest[],
+  avgRating?: number,
+  reviewCount: number = 0,
+): { score: number; grade: string; color: string; bg: string; label: string; breakdown: ScoreBreakdown } {
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+  // Categorize violations
+  const openViolations: BuildingViolation[] = [];
+  const resolvedViolations: BuildingViolation[] = [];
+  for (const v of violations) {
+    const status = (v.violation_status || "").toUpperCase();
+    if (status === "COMPLIANT" || status === "COMPLIED" || status === "NO ENTRY") {
+      resolvedViolations.push(v);
+    } else {
+      openViolations.push(v);
+    }
+  }
+
+  // Open violations: recent ones weigh more (diminishing returns via sqrt)
+  let recentOpenCount = 0;
+  let olderOpenCount = 0;
+  for (const v of openViolations) {
+    const date = v.violation_date ? new Date(v.violation_date) : null;
+    if (date && date >= twoYearsAgo) {
+      recentOpenCount++;
+    } else {
+      olderOpenCount++;
+    }
+  }
+  // Diminishing returns: first few hurt most, additional ones matter less
+  // Recent open: sqrt scaling * 6, older open: sqrt scaling * 2, cap at 30
+  const openViolationPoints = Math.min(
+    Math.round(Math.sqrt(recentOpenCount) * 6 + Math.sqrt(olderOpenCount) * 2),
+    30
+  );
+
+  // Resolved violations: very light penalty — these show problems were FIXED
+  // Only count recent resolved ones, and with heavy diminishing returns, cap at 5
+  let recentResolvedCount = 0;
+  for (const v of resolvedViolations) {
+    const date = v.violation_date ? new Date(v.violation_date) : null;
+    if (date && date >= twoYearsAgo) {
+      recentResolvedCount++;
+    }
+  }
+  const resolvedViolationPoints = Math.min(Math.round(Math.sqrt(recentResolvedCount) * 1.5), 5);
+
+  // Categorize complaints
+  let unresolvedComplaints = 0;
+  let resolvedComplaints = 0;
+  for (const c of complaints) {
+    const status = (c.status || "").toUpperCase();
+    if (status === "CLOSED" || status === "COMPLETED" || status === "CANCELED") {
+      resolvedComplaints++;
+    } else {
+      unresolvedComplaints++;
+    }
+  }
+  // Unresolved complaints: diminishing returns, cap at 20
+  const unresolvedComplaintPoints = Math.min(Math.round(Math.sqrt(unresolvedComplaints) * 5), 20);
+  // Resolved complaints: negligible — resolving is good behavior. Cap at 3
+  const resolvedComplaintPoints = Math.min(Math.round(Math.sqrt(resolvedComplaints) * 0.3), 3);
+
+  // Review sentiment: +/- up to 15 points
+  let reviewPoints = 0;
+  if (avgRating !== undefined && avgRating > 0 && reviewCount > 0) {
+    // Scale: 5.0 = +15, 4.0 = +8, 3.0 = 0, 2.0 = -8, 1.0 = -15
+    reviewPoints = Math.round((avgRating - 3) * 7.5);
+    reviewPoints = Math.max(-15, Math.min(15, reviewPoints));
+  }
+
+  let score = 100 - openViolationPoints - resolvedViolationPoints - unresolvedComplaintPoints - resolvedComplaintPoints + reviewPoints;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  const breakdown: ScoreBreakdown = {
+    openViolations: openViolations.length,
+    openViolationPoints,
+    recentOpenViolations: recentOpenCount,
+    resolvedViolations: resolvedViolations.length,
+    resolvedViolationPoints,
+    unresolvedComplaints,
+    unresolvedComplaintPoints,
+    resolvedComplaints,
+    resolvedComplaintPoints,
+    reviewPoints,
+    avgRating,
+    reviewCount,
+  };
+
+  if (score >= 90) return { score, grade: "A", color: "#1a7f37", bg: "#dafbe1", label: "Excellent", breakdown };
+  if (score >= 80) return { score, grade: "B", color: "#0969da", bg: "#ddf4ff", label: "Good", breakdown };
+  if (score >= 70) return { score, grade: "C", color: "#9a6700", bg: "#fff8c5", label: "Fair", breakdown };
+  if (score >= 60) return { score, grade: "D", color: "#bc4c00", bg: "#fff1e5", label: "Below Average", breakdown };
+  return { score, grade: "F", color: "#cf222e", bg: "#ffebe9", label: "Poor", breakdown };
+}
+
+// ─── LOADING SKELETON ───
+
+function SkeletonBlock({ width, height, style }: { width?: string | number; height?: string | number; style?: React.CSSProperties }) {
+  return (
+    <div className="skeleton" style={{ width: width || "100%", height: height || 16, borderRadius: 6, ...style }} />
+  );
+}
+
 // ─── DB HELPERS ───
 
 interface DbLandlord {
@@ -1652,15 +1776,30 @@ export default function TenantShield({ initialView, initialAddress, initialData,
       <div
         style={{
           minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
           background: "#f6f8fa",
           fontFamily:
             "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif",
         }}
       >
-        <span style={{ fontSize: 15, color: "#57606a" }}>Loading...</span>
+        {/* Skeleton nav */}
+        <div style={{ background: "#fff", borderBottom: "1px solid #e8ecf0", padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <SkeletonBlock width={22} height={22} style={{ borderRadius: "50%" }} />
+            <SkeletonBlock width={120} height={18} />
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <SkeletonBlock width={60} height={32} style={{ borderRadius: 6 }} />
+            <SkeletonBlock width={100} height={32} style={{ borderRadius: 6 }} />
+          </div>
+        </div>
+        {/* Skeleton hero */}
+        <div style={{ background: "#fff", padding: "80px 20px 60px", textAlign: "center", borderBottom: "1px solid #e8ecf0" }}>
+          <div style={{ maxWidth: 480, margin: "0 auto" }}>
+            <SkeletonBlock width="80%" height={36} style={{ margin: "0 auto 16px" }} />
+            <SkeletonBlock width="60%" height={18} style={{ margin: "0 auto 32px" }} />
+            <SkeletonBlock width="100%" height={48} style={{ borderRadius: 8 }} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -1682,11 +1821,14 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           justifyContent: "space-between",
           alignItems: "center",
           padding: "12px 24px",
-          background: "#fff",
+          background: "rgba(255,255,255,0.95)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
           borderBottom: "1px solid #e8ecf0",
           position: "sticky",
           top: 0,
           zIndex: 100,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
         }}
       >
         <div
@@ -1940,8 +2082,17 @@ export default function TenantShield({ initialView, initialAddress, initialData,
 
       {/* Loading indicator */}
       {loading && (
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
-          <span style={{ fontSize: 14, color: "#57606a" }}>Loading...</span>
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <SkeletonBlock width="100%" height={180} style={{ borderRadius: 12 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <SkeletonBlock height={80} style={{ borderRadius: 8 }} />
+              <SkeletonBlock height={80} style={{ borderRadius: 8 }} />
+              <SkeletonBlock height={80} style={{ borderRadius: 8 }} />
+              <SkeletonBlock height={80} style={{ borderRadius: 8 }} />
+            </div>
+            <SkeletonBlock width="100%" height={120} style={{ borderRadius: 8 }} />
+          </div>
         </div>
       )}
 
@@ -1990,19 +2141,26 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               padding: "80px 20px 60px",
               textAlign: "center",
               borderBottom: "1px solid #e8ecf0",
-              background: "#fff",
+              background: "linear-gradient(180deg, #fff 0%, #f8fafc 100%)",
+              position: "relative",
+              overflow: "hidden",
             }}
           >
+            {/* Subtle decorative gradient orbs */}
+            <div style={{ position: "absolute", top: -60, left: "10%", width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(31,111,235,0.04), transparent 70%)" }} />
+            <div style={{ position: "absolute", bottom: -40, right: "15%", width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle, rgba(139,92,246,0.04), transparent 70%)" }} />
+            <div style={{ position: "relative", zIndex: 1 }}>
             <h1
               style={{
                 fontSize: "clamp(28px,5vw,44px)",
-                fontWeight: 700,
+                fontWeight: 800,
                 color: "#1f2328",
                 margin: "0 0 12px",
-                lineHeight: 1.2,
+                lineHeight: 1.15,
+                letterSpacing: -0.5,
               }}
             >
-              Research your landlord before you sign the lease.
+              Research your landlord<br />before you sign the lease.
             </h1>
             <p
               style={{
@@ -2102,8 +2260,52 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               )}
             </div>
 
+            {/* Trust Signals */}
+            <div style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 32,
+              marginTop: 32,
+              flexWrap: "wrap",
+            }}>
+              {[
+                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1f6feb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>, num: "173,000+", label: "Buildings Indexed" },
+                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cf222e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>, num: "2,000,000+", label: "Violations Tracked" },
+                { icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a7f37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>, num: "Trusted by", label: "Chicago Renters" },
+              ].map((item) => (
+                <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: "#f6f8fa",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>
+                    {item.icon}
+                  </div>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#1f2328", lineHeight: 1.2 }}>{item.num}</div>
+                    <div style={{ fontSize: 12, color: "#57606a" }}>{item.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, color: "#8b949e" }}>
+              Data sourced from the{" "}
+              <a
+                href="https://data.cityofchicago.org/Buildings/Building-Violations/22u3-xenr"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#8b949e", textDecoration: "underline" }}
+              >
+                City of Chicago Open Data Portal
+              </a>
+            </div>
+
             {/* Quick nav links */}
-            <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 24, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 28, flexWrap: "wrap" }}>
               <a
                 href="/managers"
                 style={{
@@ -2151,6 +2353,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 Browse Neighborhoods
               </a>
             </div>
+            </div>{/* end relative z-index wrapper */}
           </div>
           <div
             style={{
@@ -2189,20 +2392,22 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               ))}
             </div>
           </div>
-          {/* Recent Reviews */}
-          <div style={{ padding: "48px 20px", maxWidth: 720, margin: "0 auto" }}>
+          {/* Recently Reviewed Buildings */}
+          <div style={{ padding: "56px 20px", maxWidth: 900, margin: "0 auto" }}>
             {recentReviews.length > 0 ? (
               <>
-                <h2 style={{ fontSize: 22, fontWeight: 700, textAlign: "center", color: "#1f2328", marginBottom: 8 }}>
-                  Recent Reviews
-                </h2>
-                <p style={{ fontSize: 14, color: "#57606a", textAlign: "center", margin: "0 0 28px" }}>
-                  Real feedback from Chicago renters
-                </p>
-                <div style={{ display: "grid", gap: 16 }}>
+                <div style={{ textAlign: "center", marginBottom: 36 }}>
+                  <h2 style={{ fontSize: 26, fontWeight: 700, color: "#1f2328", marginBottom: 8 }}>
+                    Recently Reviewed Buildings
+                  </h2>
+                  <p style={{ fontSize: 15, color: "#57606a", maxWidth: 480, margin: "0 auto", lineHeight: 1.6 }}>
+                    Real feedback from Chicago renters — updated in real time
+                  </p>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
                   {recentReviews.map((rv) => {
                     const snippet = rv.good_text || rv.bad_text || "";
-                    const truncated = snippet.length > 120 ? snippet.slice(0, 120) + "..." : snippet;
+                    const truncated = snippet.length > 100 ? snippet.slice(0, 100) + "..." : snippet;
                     const ago = timeAgo(rv.created_at);
                     const slug = addressToSlug(rv.address);
                     return (
@@ -2210,57 +2415,70 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                         key={rv.id}
                         href={`/address/${slug}`}
                         style={{
-                          display: "block",
+                          display: "flex",
+                          flexDirection: "column",
                           background: "#fff",
                           border: "1px solid #e8ecf0",
-                          borderRadius: 10,
-                          padding: "18px 20px",
+                          borderRadius: 12,
+                          padding: "24px",
                           textDecoration: "none",
-                          transition: "border-color 0.15s",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#93c5fd")}
-                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e8ecf0")}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#93c5fd"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(31,111,235,0.1)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e8ecf0"; e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)"; e.currentTarget.style.transform = "translateY(0)"; }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                          <div style={{ flex: 1, minWidth: 200 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                              <span style={{ fontSize: 14, letterSpacing: 1, color: "#f59e0b" }}>
-                                {"\u2605".repeat(rv.rating)}{"\u2606".repeat(5 - rv.rating)}
-                              </span>
-                              <span style={{ fontSize: 12, color: "#8b949e" }}>{ago}</span>
-                            </div>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2328", marginBottom: 6 }}>
-                              {rv.address}
-                            </div>
-                            {truncated && (
-                              <p style={{ fontSize: 13, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
-                                &ldquo;{truncated}&rdquo;
-                              </p>
-                            )}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                          <div style={{ display: "flex", gap: 2 }}>
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <span key={s} style={{ fontSize: 16, color: s <= rv.rating ? "#f4a623" : "#d1d5db" }}>★</span>
+                            ))}
                           </div>
-                          {rv.duration_lived && (
-                            <span style={{ fontSize: 11, color: "#8b949e", whiteSpace: "nowrap", marginTop: 2 }}>
-                              Lived: {rv.duration_lived}
-                            </span>
-                          )}
+                          <span style={{ fontSize: 12, color: "#8b949e" }}>{ago}</span>
                         </div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: "#1f2328", marginBottom: 8 }}>
+                          {rv.address}
+                        </div>
+                        {truncated && (
+                          <p style={{ fontSize: 13, color: "#57606a", margin: "0 0 12px", lineHeight: 1.6, flex: 1 }}>
+                            &ldquo;{truncated}&rdquo;
+                          </p>
+                        )}
+                        {rv.duration_lived && (
+                          <div style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            fontSize: 11,
+                            color: "#57606a",
+                            background: "#f6f8fa",
+                            padding: "3px 10px",
+                            borderRadius: 20,
+                            alignSelf: "flex-start",
+                          }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            Lived: {rv.duration_lived}
+                          </div>
+                        )}
                       </a>
                     );
                   })}
                 </div>
-                <div style={{ textAlign: "center", marginTop: 24 }}>
+                <div style={{ textAlign: "center", marginTop: 32 }}>
                   <button
                     onClick={goReview}
                     style={{
-                      padding: "10px 28px",
+                      padding: "14px 36px",
                       background: "#1f6feb",
                       color: "#fff",
                       border: "none",
                       borderRadius: 8,
-                      fontSize: 14,
+                      fontSize: 15,
                       fontWeight: 600,
                       cursor: "pointer",
                       fontFamily: "inherit",
+                      boxShadow: "0 2px 8px rgba(31,111,235,0.25)",
                     }}
                   >
                     Write a Review
@@ -2270,22 +2488,23 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             ) : (
               <div style={{
                 textAlign: "center",
-                padding: "40px 24px",
+                padding: "48px 24px",
                 background: "#fff",
                 border: "1px solid #e8ecf0",
                 borderRadius: 12,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
               }}>
-                <div style={{ fontSize: 36, marginBottom: 16 }}>&#127968;</div>
-                <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 10px" }}>
+                <div style={{ fontSize: 42, marginBottom: 16 }}>&#127968;</div>
+                <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 10px" }}>
                   Be the first to review your building
                 </h2>
-                <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 24px", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
+                <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 24px", maxWidth: 420, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
                   Help the next renter know what they&apos;re getting into. Share your experience — it only takes a minute.
                 </p>
                 <button
                   onClick={goReview}
                   style={{
-                    padding: "12px 32px",
+                    padding: "14px 36px",
                     background: "#1f6feb",
                     color: "#fff",
                     border: "none",
@@ -2294,6 +2513,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                     fontWeight: 600,
                     cursor: "pointer",
                     fontFamily: "inherit",
+                    boxShadow: "0 2px 8px rgba(31,111,235,0.25)",
                   }}
                 >
                   Write a Review
@@ -2330,44 +2550,34 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 gap: 20,
               }}
             >
-              {(
-                [
-                  [
-                    "Search",
-                    "Enter any Chicago address, landlord name, or neighborhood to get started.",
-                  ],
-                  [
-                    "Review Scores",
-                    "See ratings across maintenance, communication, deposit fairness, and listing honesty.",
-                  ],
-                  [
-                    "Read Reviews",
-                    "Real experiences from tenants who actually lived there.",
-                  ],
-                  [
-                    "Rent Informed",
-                    "Make confident decisions backed by data and community insights.",
-                  ],
-                ] as const
-              ).map(([title, desc], i) => (
+              {([
+                  { icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1f6feb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>, title: "Search", desc: "Enter any Chicago address, landlord name, or neighborhood to get started." },
+                  { icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f4a623" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>, title: "Review Scores", desc: "See ratings across maintenance, communication, deposit fairness, and listing honesty." },
+                  { icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>, title: "Read Reviews", desc: "Real experiences from tenants who actually lived there." },
+                  { icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a7f37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>, title: "Rent Informed", desc: "Make confident decisions backed by data and community insights." },
+                ]).map((step, i) => (
                 <div
                   key={i}
                   style={{
-                    padding: 20,
+                    padding: 24,
                     border: "1px solid #e8ecf0",
-                    borderRadius: 8,
+                    borderRadius: 10,
                     background: "#fff",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                    textAlign: "center",
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: "#1f6feb",
-                      marginBottom: 8,
-                    }}
-                  >
-                    STEP {i + 1}
+                  <div style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 12,
+                    background: "#f6f8fa",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 12px",
+                  }}>
+                    {step.icon}
                   </div>
                   <div
                     style={{
@@ -2377,12 +2587,12 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                       marginBottom: 6,
                     }}
                   >
-                    {title}
+                    {step.title}
                   </div>
                   <div
                     style={{ fontSize: 13, color: "#57606a", lineHeight: 1.6 }}
                   >
-                    {desc}
+                    {step.desc}
                   </div>
                 </div>
               ))}
@@ -3377,36 +3587,154 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           </nav>
 
           {/* ─── SUMMARY CARD ─── */}
+          {(() => {
+            const vLen = addressResult.violations.length;
+            const cLen = addressResult.complaints.length;
+            const pLen = permits.length;
+            const avgRating = tenantReviews.length > 0
+              ? tenantReviews.reduce((sum, r) => sum + r.rating, 0) / tenantReviews.length
+              : undefined;
+            const buildingScore = computeBuildingScore(addressResult.violations, addressResult.complaints, avgRating, tenantReviews.length);
+            const sentiment = communityReview?.overall_sentiment;
+            return (
           <div
             style={{
               border: "1px solid #e8ecf0",
-              borderRadius: 8,
+              borderRadius: 12,
               background: "#fff",
               marginBottom: 16,
               overflow: "hidden",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
             }}
           >
-            <div style={{ padding: "24px 28px", borderBottom: "1px solid #e8ecf0" }}>
+            <div style={{ padding: "28px 28px 20px", borderBottom: "1px solid #e8ecf0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
-                <div>
-                  <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px", color: "#1f2328" }}>
+                <div style={{ flex: 1, minWidth: 280 }}>
+                  <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 6px", color: "#1f2328" }}>
                     {addressResult.address}
                   </h1>
-                  <p style={{ fontSize: 14, color: "#57606a", margin: 0 }}>
-                    {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL · Public Records
+                  <p style={{ fontSize: 14, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
+                    {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL
                     {claimInfo?.company_name ? <>{" · Managed by "}{claimInfo.slug ? <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>{claimInfo.company_name}</a> : claimInfo.company_name}</> : ""}
                   </p>
+
+                  {/* Large Rating Display */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 16, flexWrap: "wrap" }}>
+                    {avgRating !== undefined && avgRating > 0 ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 36, fontWeight: 700, color: "#1f2328", lineHeight: 1 }}>
+                          {avgRating.toFixed(1)}
+                        </span>
+                        <div>
+                          <div style={{ display: "flex", gap: 2, marginBottom: 2 }}>
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <span key={s} style={{ fontSize: 18, color: s <= Math.round(avgRating) ? "#f4a623" : "#d1d5db" }}>★</span>
+                            ))}
+                          </div>
+                          <span style={{ fontSize: 12, color: "#57606a" }}>
+                            {tenantReviews.length} review{tenantReviews.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 2 }}>
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <span key={s} style={{ fontSize: 18, color: "#d1d5db" }}>★</span>
+                          ))}
+                        </div>
+                        <span style={{ fontSize: 13, color: "#8b949e" }}>No ratings yet</span>
+                      </div>
+                    )}
+                    {/* Divider */}
+                    <div style={{ width: 1, height: 36, background: "#e8ecf0" }} />
+                    {/* Building Score */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 10,
+                        background: buildingScore.bg,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 22,
+                        fontWeight: 800,
+                        color: buildingScore.color,
+                      }}>
+                        {buildingScore.grade}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2328" }}>
+                          TenantShield Score
+                        </div>
+                        <div style={{ fontSize: 12, color: buildingScore.color, fontWeight: 600 }}>
+                          {buildingScore.score}/100 · {buildingScore.label}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Score Breakdown */}
                 <div style={{
-                  padding: "8px 14px",
+                  marginTop: 16,
+                  padding: "12px 16px",
                   background: "#f6f8fa",
                   borderRadius: 8,
                   fontSize: 12,
                   color: "#57606a",
-                  fontWeight: 600,
-                  textAlign: "center",
+                  lineHeight: 1.7,
                 }}>
-                  City of Chicago<br />Open Data
+                  <div style={{ fontWeight: 600, color: "#1f2328", marginBottom: 4, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 }}>
+                    Score Breakdown
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    <span style={{ color: "#1f2328", fontWeight: 600 }}>100</span>
+                    {buildingScore.breakdown.openViolationPoints > 0 && (
+                      <span style={{ color: "#cf222e", fontWeight: 600 }}>
+                        −{buildingScore.breakdown.openViolationPoints}
+                        <span style={{ fontWeight: 400, color: "#57606a" }}>
+                          {" "}({buildingScore.breakdown.openViolations} open violation{buildingScore.breakdown.openViolations !== 1 ? "s" : ""}
+                          {buildingScore.breakdown.recentOpenViolations > 0 ? `, ${buildingScore.breakdown.recentOpenViolations} recent` : ""})
+                        </span>
+                      </span>
+                    )}
+                    {buildingScore.breakdown.resolvedViolationPoints > 0 && (
+                      <span style={{ color: "#bc4c00", fontWeight: 600 }}>
+                        −{buildingScore.breakdown.resolvedViolationPoints}
+                        <span style={{ fontWeight: 400, color: "#57606a" }}> ({buildingScore.breakdown.resolvedViolations} resolved violation{buildingScore.breakdown.resolvedViolations !== 1 ? "s" : ""})</span>
+                      </span>
+                    )}
+                    {buildingScore.breakdown.unresolvedComplaintPoints > 0 && (
+                      <span style={{ color: "#cf222e", fontWeight: 600 }}>
+                        −{buildingScore.breakdown.unresolvedComplaintPoints}
+                        <span style={{ fontWeight: 400, color: "#57606a" }}> ({buildingScore.breakdown.unresolvedComplaints} unresolved complaint{buildingScore.breakdown.unresolvedComplaints !== 1 ? "s" : ""})</span>
+                      </span>
+                    )}
+                    {buildingScore.breakdown.resolvedComplaintPoints > 0 && (
+                      <span style={{ color: "#bc4c00", fontWeight: 600 }}>
+                        −{buildingScore.breakdown.resolvedComplaintPoints}
+                        <span style={{ fontWeight: 400, color: "#57606a" }}> ({buildingScore.breakdown.resolvedComplaints} resolved complaint{buildingScore.breakdown.resolvedComplaints !== 1 ? "s" : ""})</span>
+                      </span>
+                    )}
+                    {buildingScore.breakdown.reviewPoints !== 0 && (
+                      <span style={{ color: buildingScore.breakdown.reviewPoints > 0 ? "#1a7f37" : "#cf222e", fontWeight: 600 }}>
+                        {buildingScore.breakdown.reviewPoints > 0 ? "+" : ""}{buildingScore.breakdown.reviewPoints}
+                        <span style={{ fontWeight: 400, color: "#57606a" }}>
+                          {" "}({buildingScore.breakdown.avgRating?.toFixed(1)} avg from {buildingScore.breakdown.reviewCount} review{buildingScore.breakdown.reviewCount !== 1 ? "s" : ""})
+                        </span>
+                      </span>
+                    )}
+                    <span style={{ color: "#1f2328", fontWeight: 700 }}>
+                      = {buildingScore.score}/100 ({buildingScore.grade})
+                    </span>
+                  </div>
+                  {buildingScore.breakdown.openViolations === 0 && buildingScore.breakdown.unresolvedComplaints === 0 && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: "#1a7f37", fontWeight: 500 }}>
+                      No open violations or unresolved complaints on record
+                    </div>
+                  )}
                 </div>
               </div>
               {/* Share Buttons */}
@@ -3415,25 +3743,75 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               </div>
             </div>
             <div style={{ padding: "20px 28px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 12 }}>
-                {(() => {
-                  const vLen = addressResult.violations.length;
-                  const cLen = addressResult.complaints.length;
-                  const pLen = permits.length;
-                  const sentiment = communityReview?.overall_sentiment;
-                  return [
-                    [cLen, "311 Complaints", cLen > 10 ? "#cf222e" : cLen > 0 ? "#bc4c00" : "#1a7f37"],
-                    [vLen, "Building Violations", vLen > 5 ? "#cf222e" : vLen > 0 ? "#bc4c00" : "#1a7f37"],
-                    [pLen, "Building Permits", pLen > 0 ? "#1f6feb" : "#8b949e"],
-                    [reviewCount, "Tenant Reviews", reviewCount > 0 ? "#1f6feb" : "#8b949e"],
-                    ...(sentiment ? [[sentiment, "Sentiment", sentiment === "Positive" ? "#1a7f37" : sentiment === "Negative" ? "#cf222e" : "#9a6700"] as const] : []),
-                  ] as const;
-                })().map(([num, label, color]) => (
-                  <div key={label} style={{ padding: 14, background: "#f6f8fa", borderRadius: 6, textAlign: "center" }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color }}>{num}</div>
-                    <div style={{ fontSize: 11, color: "#8b949e", marginTop: 2 }}>{label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
+                {/* Stat cards with icons and color coding */}
+                <div style={{
+                  padding: 16,
+                  background: cLen === 0 ? "#f0fdf4" : cLen > 10 ? "#fef2f2" : "#fffbeb",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: `1px solid ${cLen === 0 ? "#bbf7d0" : cLen > 10 ? "#fecaca" : "#fde68a"}`,
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={cLen === 0 ? "#1a7f37" : cLen > 10 ? "#cf222e" : "#bc4c00"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 6 }}>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: cLen === 0 ? "#1a7f37" : cLen > 10 ? "#cf222e" : "#bc4c00" }}>{cLen}</div>
+                  <div style={{ fontSize: 11, color: "#57606a", marginTop: 2 }}>311 Complaints</div>
+                </div>
+                <div style={{
+                  padding: 16,
+                  background: vLen === 0 ? "#f0fdf4" : vLen > 5 ? "#fef2f2" : "#fffbeb",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: `1px solid ${vLen === 0 ? "#bbf7d0" : vLen > 5 ? "#fecaca" : "#fde68a"}`,
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={vLen === 0 ? "#1a7f37" : vLen > 5 ? "#cf222e" : "#bc4c00"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 6 }}>
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: vLen === 0 ? "#1a7f37" : vLen > 5 ? "#cf222e" : "#bc4c00" }}>{vLen}</div>
+                  <div style={{ fontSize: 11, color: "#57606a", marginTop: 2 }}>Violations</div>
+                </div>
+                <div style={{
+                  padding: 16,
+                  background: "#f0f6ff",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid #bfdbfe",
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1f6feb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 6 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "#1f6feb" }}>{pLen}</div>
+                  <div style={{ fontSize: 11, color: "#57606a", marginTop: 2 }}>Permits</div>
+                </div>
+                <div style={{
+                  padding: 16,
+                  background: reviewCount > 0 ? "#f5f3ff" : "#f6f8fa",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: `1px solid ${reviewCount > 0 ? "#ddd6fe" : "#e8ecf0"}`,
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={reviewCount > 0 ? "#8b5cf6" : "#8b949e"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 6 }}>
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </svg>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: reviewCount > 0 ? "#8b5cf6" : "#8b949e" }}>{reviewCount}</div>
+                  <div style={{ fontSize: 11, color: "#57606a", marginTop: 2 }}>Reviews</div>
+                </div>
+                {sentiment && (
+                  <div style={{
+                    padding: 16,
+                    background: sentiment === "Positive" ? "#f0fdf4" : sentiment === "Negative" ? "#fef2f2" : "#fffbeb",
+                    borderRadius: 8,
+                    textAlign: "center",
+                    border: `1px solid ${sentiment === "Positive" ? "#bbf7d0" : sentiment === "Negative" ? "#fecaca" : "#fde68a"}`,
+                  }}>
+                    <div style={{ fontSize: 20, marginBottom: 6 }}>
+                      {sentiment === "Positive" ? "👍" : sentiment === "Negative" ? "👎" : "👌"}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: sentiment === "Positive" ? "#1a7f37" : sentiment === "Negative" ? "#cf222e" : "#9a6700" }}>{sentiment}</div>
+                    <div style={{ fontSize: 11, color: "#57606a", marginTop: 2 }}>Sentiment</div>
                   </div>
-                ))}
+                )}
               </div>
               {/* Most common issue types */}
               {(() => {
@@ -3459,6 +3837,8 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               })()}
             </div>
           </div>
+            );
+          })()}
 
           {/* Google Ads */}
           <div style={{ textAlign: "center", marginBottom: 16 }}>
@@ -3474,13 +3854,17 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           {/* ─── TAB BAR ─── */}
           <div style={{
             position: "sticky",
-            top: 0,
+            top: 49,
             zIndex: 10,
-            background: "#fff",
+            background: "rgba(255,255,255,0.95)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
             borderBottom: "1px solid #e8ecf0",
+            borderRadius: "8px 8px 0 0",
             marginBottom: 16,
             overflowX: "auto",
             WebkitOverflowScrolling: "touch",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
           }}>
             <div style={{ display: "flex", minWidth: "max-content" }}>
               <button onClick={() => switchTab("overview")} style={tabStyle(activeTab === "overview")}>
@@ -3509,12 +3893,16 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               {/* About This Building */}
               <div style={{
                 border: "1px solid #e8ecf0",
-                borderRadius: 8,
+                borderRadius: 10,
                 background: "#fff",
-                padding: "20px 28px",
+                padding: "24px 28px",
                 marginBottom: 16,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
               }}>
-                <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1f6feb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
                   About This Building
                 </h2>
                 <p style={{ fontSize: 14, color: "#1f2328", lineHeight: 1.7, margin: 0 }}>
@@ -3755,7 +4143,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                     flexWrap: "wrap",
                   }}
                 >
-                  {/* Logo or initial */}
+                  {/* Logo or building icon */}
                   {claimInfo.logo_url ? (
                     <img
                       src={claimInfo.logo_url}
@@ -3764,11 +4152,15 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                     />
                   ) : (
                     <div style={{
-                      width: 48, height: 48, borderRadius: 10, background: "#1f6feb",
+                      width: 48, height: 48, borderRadius: 10,
+                      background: claimInfo.company_name ? "#1f6feb" : "#e8ecf0",
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 20, fontWeight: 700, color: "#fff", flexShrink: 0,
+                      flexShrink: 0,
                     }}>
-                      {(claimInfo.company_name || "P")[0].toUpperCase()}
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={claimInfo.company_name ? "#fff" : "#8b949e"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="4" y="2" width="16" height="20" rx="2" />
+                        <path d="M9 22V12h6v10" /><path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01" />
+                      </svg>
                     </div>
                   )}
                   <div style={{ flex: 1, minWidth: 200 }}>
@@ -3779,13 +4171,19 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                           <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                         </svg>
                       )}
-                      Managed by{" "}
-                      {claimInfo.slug ? (
-                        <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>
-                          {claimInfo.company_name || "Property Owner"}
-                        </a>
+                      {claimInfo.company_name ? (
+                        <>
+                          Managed by{" "}
+                          {claimInfo.slug ? (
+                            <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>
+                              {claimInfo.company_name}
+                            </a>
+                          ) : (
+                            claimInfo.company_name
+                          )}
+                        </>
                       ) : (
-                        claimInfo.company_name || "Property Owner"
+                        "Management not verified"
                       )}
                     </p>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -4210,65 +4608,105 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             <>
               {/* Tenant Reviews */}
               {tenantReviews.length > 0 && (
-                <div style={{
-                  border: "1px solid #e8ecf0",
-                  borderRadius: 8,
-                  background: "#fff",
-                  padding: "20px 28px",
-                  marginBottom: 16,
-                }}>
-                  <h2 style={{ fontSize: 13, fontWeight: 600, color: "#1f2328", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                <div style={{ marginBottom: 16 }}>
+                  <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1f2328", margin: "0 0 16px", display: "flex", alignItems: "center", gap: 8 }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
                     Tenant Reviews ({tenantReviews.length})
                   </h2>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                    {tenantReviews.map((r, idx) => (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {tenantReviews.map((r) => (
                       <div key={r.id} style={{
-                        padding: "14px 0",
-                        borderTop: idx > 0 ? "1px solid #e8ecf0" : "none",
+                        border: "1px solid #e8ecf0",
+                        borderRadius: 10,
+                        background: "#fff",
+                        padding: "20px 24px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                       }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                          <div style={{ display: "flex", gap: 2 }}>
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <span key={star} style={{ fontSize: 16, color: star <= r.rating ? "#f59e0b" : "#d0d7de" }}>★</span>
-                            ))}
-                          </div>
-                          <span style={{ fontSize: 12, color: "#8b949e" }}>{formatDate(r.created_at)}</span>
-                          {r.would_recommend !== null && (
-                            <span style={{
-                              fontSize: 11, fontWeight: 600, padding: "1px 8px", borderRadius: 10,
-                              background: r.would_recommend ? "#dafbe1" : "#ffebe9",
-                              color: r.would_recommend ? "#1a7f37" : "#cf222e",
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            {/* Avatar placeholder */}
+                            <div style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: "50%",
+                              background: "linear-gradient(135deg, #e0e7ff, #c7d2fe)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: "#4f46e5",
+                              flexShrink: 0,
                             }}>
-                              {r.would_recommend ? "Would recommend" : "Would not recommend"}
-                            </span>
-                          )}
+                              T
+                            </div>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ display: "flex", gap: 2 }}>
+                                  {[1, 2, 3, 4, 5].map((star) => (
+                                    <span key={star} style={{ fontSize: 16, color: star <= r.rating ? "#f4a623" : "#d1d5db" }}>★</span>
+                                  ))}
+                                </div>
+                                {r.would_recommend !== null && (
+                                  <span style={{
+                                    fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+                                    background: r.would_recommend ? "#dafbe1" : "#ffebe9",
+                                    color: r.would_recommend ? "#1a7f37" : "#cf222e",
+                                  }}>
+                                    {r.would_recommend ? "Recommends" : "Does not recommend"}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                                <span style={{ fontSize: 12, color: "#8b949e" }}>{formatDate(r.created_at)}</span>
+                                {r.duration_lived && (
+                                  <>
+                                    <span style={{ fontSize: 12, color: "#d1d5db" }}>·</span>
+                                    <span style={{
+                                      fontSize: 11,
+                                      color: "#57606a",
+                                      background: "#f6f8fa",
+                                      padding: "2px 8px",
+                                      borderRadius: 4,
+                                      fontWeight: 500,
+                                    }}>
+                                      Lived here: {r.duration_lived}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                         {r.good_text && (
-                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
-                            <span style={{ fontWeight: 600, color: "#1a7f37" }}>Good: </span>{r.good_text}
-                          </p>
+                          <div style={{ marginBottom: 8, padding: "10px 14px", background: "#f0fdf4", borderRadius: 6, borderLeft: "3px solid #86efac" }}>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: 0, lineHeight: 1.6 }}>
+                              <span style={{ fontWeight: 600, color: "#1a7f37" }}>Pros: </span>{r.good_text}
+                            </p>
+                          </div>
                         )}
                         {r.bad_text && (
-                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
-                            <span style={{ fontWeight: 600, color: "#cf222e" }}>Bad: </span>{r.bad_text}
-                          </p>
+                          <div style={{ marginBottom: 8, padding: "10px 14px", background: "#fef2f2", borderRadius: 6, borderLeft: "3px solid #fca5a5" }}>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: 0, lineHeight: 1.6 }}>
+                              <span style={{ fontWeight: 600, color: "#cf222e" }}>Cons: </span>{r.bad_text}
+                            </p>
+                          </div>
                         )}
                         {r.text && !r.good_text && !r.bad_text && (
-                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{r.text}</p>
-                        )}
-                        {r.duration_lived && (
-                          <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4 }}>Lived here: {r.duration_lived}</div>
+                          <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 8px", lineHeight: 1.6 }}>{r.text}</p>
                         )}
                         {/* Management Response */}
                         {reviewResponses[r.id] && (
                           <div style={{
-                            marginTop: 10,
-                            padding: "10px 14px",
+                            marginTop: 12,
+                            padding: "12px 16px",
                             borderLeft: "3px solid #1a7f37",
                             background: "#f0fdf4",
-                            borderRadius: "0 6px 6px 0",
+                            borderRadius: "0 8px 8px 0",
                           }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="#1a7f37" style={{ flexShrink: 0 }}>
                                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                                 <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -4276,7 +4714,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                               Management Response
                               <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 8, background: "#d1fae5", color: "#065f46" }}>Verified</span>
                             </div>
-                            <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{reviewResponses[r.id].response_text}</p>
+                            <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.6 }}>{reviewResponses[r.id].response_text}</p>
                             <div style={{ fontSize: 11, color: "#8b949e" }}>
                               {reviewResponses[r.id].company_name && <span>{reviewResponses[r.id].company_name} · </span>}
                               {formatDate(reviewResponses[r.id].created_at)}
@@ -4373,42 +4811,67 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 </div>
               )}
 
-              {/* Review CTA */}
+              {/* Rate This Building CTA */}
               <div
                 style={{
-                  border: "2px solid #d4e4fb",
-                  borderRadius: 10,
-                  background: "linear-gradient(to bottom, #f0f6ff, #fff)",
-                  padding: "36px 28px",
+                  border: "1px solid #d4e4fb",
+                  borderRadius: 12,
+                  background: "linear-gradient(135deg, #f0f6ff 0%, #e8f4f8 50%, #f5f3ff 100%)",
+                  padding: "40px 32px",
                   textAlign: "center",
+                  boxShadow: "0 2px 8px rgba(31,111,235,0.08)",
+                  position: "relative",
+                  overflow: "hidden",
                 }}
               >
-                <h3 style={{ fontSize: 19, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
-                  Have you lived here?
-                </h3>
-                <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 8px", lineHeight: 1.6 }}>
-                  Your experience helps other renters make informed decisions.
-                </p>
-                <p style={{ fontSize: 13, color: "#8b949e", margin: "0 0 20px", lineHeight: 1.5 }}>
-                  City records only tell part of the story. Share what it was actually like — maintenance response times, deposit fairness, communication, and more.
-                </p>
-                <button
-                  onClick={goReview}
-                  style={{
-                    padding: "14px 36px",
-                    background: "#1f6feb",
-                    border: "none",
-                    borderRadius: 8,
-                    color: "#fff",
-                    fontSize: 16,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    boxShadow: "0 2px 8px rgba(31,111,235,0.3)",
-                  }}
-                >
-                  Write a Review
-                </button>
+                <div style={{
+                  position: "absolute",
+                  top: -20,
+                  right: -20,
+                  width: 120,
+                  height: 120,
+                  borderRadius: "50%",
+                  background: "rgba(31,111,235,0.05)",
+                }} />
+                <div style={{ position: "relative", zIndex: 1 }}>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 16 }}>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <span key={s} style={{ fontSize: 28, color: "#d1d5db" }}>★</span>
+                    ))}
+                  </div>
+                  <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 8px" }}>
+                    Rate This Building
+                  </h3>
+                  <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 8px", lineHeight: 1.6, maxWidth: 440, marginLeft: "auto", marginRight: "auto" }}>
+                    Your experience helps other renters make informed decisions.
+                  </p>
+                  <p style={{ fontSize: 13, color: "#8b949e", margin: "0 0 24px", lineHeight: 1.5, maxWidth: 440, marginLeft: "auto", marginRight: "auto" }}>
+                    City records only tell part of the story. Share what it was actually like — maintenance, deposit fairness, communication, and more.
+                  </p>
+                  <button
+                    onClick={goReview}
+                    style={{
+                      padding: "16px 48px",
+                      background: "linear-gradient(135deg, #1f6feb, #388bfd)",
+                      border: "none",
+                      borderRadius: 10,
+                      color: "#fff",
+                      fontSize: 16,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      boxShadow: "0 4px 14px rgba(31,111,235,0.35)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    Write a Review
+                  </button>
+                </div>
               </div>
             </>
           )}
@@ -6186,23 +6649,67 @@ export default function TenantShield({ initialView, initialAddress, initialData,
 
       <footer
         style={{
-          textAlign: "center",
-          padding: "36px 20px",
           borderTop: "1px solid #e8ecf0",
-          marginTop: 40,
+          marginTop: 48,
           background: "#fff",
+          padding: "48px 20px 32px",
         }}
       >
-        <div style={{ fontSize: 13, color: "#8b949e" }}>
-          TenantShield · Protecting Chicago renters · 2026
-        </div>
-        <div style={{ fontSize: 11, color: "#b1bac4", marginTop: 4 }}>
-          Public records sourced from the City of Chicago Open Data Portal
-        </div>
-        <div style={{ fontSize: 11, marginTop: 8, display: "flex", justifyContent: "center", gap: 16 }}>
-          <a href="/blog" style={{ color: "#8b949e", textDecoration: "none" }}>Blog</a>
-          <a href="/privacy" style={{ color: "#8b949e", textDecoration: "none" }}>Privacy Policy</a>
-          <a href="/terms" style={{ color: "#8b949e", textDecoration: "none" }}>Terms of Service</a>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 40, marginBottom: 32 }}>
+            {/* Brand Column */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1f6feb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+                <span style={{ fontWeight: 700, fontSize: 17, color: "#1f2328", letterSpacing: -0.3 }}>TenantShield</span>
+              </div>
+              <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.6, maxWidth: 260, margin: "0 0 16px" }}>
+                Protecting Chicago renters with transparent building data, public records, and honest reviews.
+              </p>
+              <div style={{ fontSize: 11, color: "#8b949e" }}>
+                Public records from the City of Chicago Open Data Portal
+              </div>
+            </div>
+            {/* For Renters */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#1f2328", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                For Renters
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <a href="/" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Search Buildings</a>
+                <span onClick={goReview} style={{ fontSize: 13, color: "#57606a", cursor: "pointer" }}>Write a Review</span>
+                <a href="/blog" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Blog</a>
+                <a href="/neighborhoods" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Neighborhoods</a>
+              </div>
+            </div>
+            {/* For Landlords */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#1f2328", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                For Landlords
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <a href="/landlord/signup" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Claim Your Building</a>
+                <a href="/landlord/dashboard" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Dashboard</a>
+                <a href="/managers" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Manager Directory</a>
+              </div>
+            </div>
+            {/* Company */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#1f2328", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Company
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <a href="/privacy" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Privacy Policy</a>
+                <a href="/terms" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Terms of Service</a>
+                <a href="mailto:support@mytenantshield.com" style={{ fontSize: 13, color: "#57606a", textDecoration: "none" }}>Contact</a>
+              </div>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid #e8ecf0", paddingTop: 20, textAlign: "center", fontSize: 12, color: "#8b949e" }}>
+            © 2026 TenantShield. All rights reserved.
+          </div>
         </div>
       </footer>
 

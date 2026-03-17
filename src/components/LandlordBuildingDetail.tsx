@@ -174,6 +174,18 @@ export default function LandlordBuildingDetail() {
   const [responseSaving, setResponseSaving] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
 
+  // Reviews state
+  const [reviews, setReviews] = useState<{
+    id: string;
+    rating: number;
+    text: string | null;
+    good_text: string | null;
+    bad_text: string | null;
+    duration_lived: string | null;
+    would_recommend: boolean | null;
+    created_at: string;
+  }[]>([]);
+
   /* ---- Upgrade to Pro ---- */
   async function handleUpgrade() {
     setUpgrading(true);
@@ -249,6 +261,14 @@ export default function LandlordBuildingDetail() {
         }
         setResponses(map);
       }
+
+      // Fetch tenant reviews for this building
+      fetch(`/api/building-reviews?address=${encodeURIComponent(bldg.address)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.reviews) setReviews(d.reviews);
+        })
+        .catch(() => {});
 
       // Fetch Chicago API data
       setDataLoading(true);
@@ -1088,6 +1108,185 @@ export default function LandlordBuildingDetail() {
                   {showAllComplaints ? "Show less" : `Show all ${statusFilteredComplaints.length}`}
                 </button>
               )}
+            </>
+          )}
+        </div>
+
+        {/* Tenant Reviews */}
+        <div style={{ ...cardStyle, marginBottom: 20 }}>
+          <h3 style={sectionHeadingStyle}>Tenant Reviews ({reviews.length})</h3>
+          {reviews.length === 0 ? (
+            <p style={{ fontSize: 14, color: "#57606a" }}>
+              No tenant reviews yet for this building.
+            </p>
+          ) : (
+            <>
+              {reviews.map((r, i) => {
+                const reviewKey = `review_${r.id}`;
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      padding: "14px 0",
+                      borderTop: i > 0 ? "1px solid #e8ecf0" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div style={{ display: "flex", gap: 2 }}>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <span
+                            key={star}
+                            style={{
+                              fontSize: 16,
+                              color: star <= r.rating ? "#f59e0b" : "#d0d7de",
+                            }}
+                          >
+                            ★
+                          </span>
+                        ))}
+                      </div>
+                      <span style={{ fontSize: 12, color: "#8b949e" }}>
+                        {formatDate(r.created_at)}
+                      </span>
+                      {r.would_recommend !== null && (
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "1px 8px",
+                          borderRadius: 10,
+                          background: r.would_recommend ? "#dafbe1" : "#ffebe9",
+                          color: r.would_recommend ? "#1a7f37" : "#cf222e",
+                        }}>
+                          {r.would_recommend ? "Would recommend" : "Would not recommend"}
+                        </span>
+                      )}
+                    </div>
+                    {r.good_text && (
+                      <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 600, color: "#1a7f37" }}>Good: </span>
+                        {r.good_text}
+                      </p>
+                    )}
+                    {r.bad_text && (
+                      <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 600, color: "#cf222e" }}>Bad: </span>
+                        {r.bad_text}
+                      </p>
+                    )}
+                    {r.text && !r.good_text && !r.bad_text && (
+                      <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>
+                        {r.text}
+                      </p>
+                    )}
+                    {r.duration_lived && (
+                      <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4 }}>
+                        Lived here: {r.duration_lived}
+                      </div>
+                    )}
+
+                    {/* Existing response */}
+                    {responses[reviewKey] && respondingTo !== reviewKey && (
+                      <div style={{
+                        marginTop: 10,
+                        marginLeft: 16,
+                        padding: "10px 14px",
+                        borderLeft: "3px solid #1a7f37",
+                        background: "#f0fdf4",
+                        borderRadius: "0 6px 6px 0",
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1a7f37", marginBottom: 4 }}>Your Response</div>
+                        <p style={{ fontSize: 13, color: "#1f2328", margin: "0 0 4px", lineHeight: 1.5 }}>{responses[reviewKey].response_text}</p>
+                        <div style={{ fontSize: 11, color: "#8b949e" }}>{formatDate(responses[reviewKey].created_at)}</div>
+                        <button
+                          onClick={() => { setRespondingTo(reviewKey); setResponseText(responses[reviewKey].response_text); }}
+                          style={{ marginTop: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "none", border: "1px solid #d0d7de", borderRadius: 4, color: "#57606a", cursor: "pointer", fontFamily: "inherit" }}
+                        >
+                          Edit Response
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Response form */}
+                    {respondingTo === reviewKey && (
+                      <div style={{ marginTop: 10, marginLeft: 16, padding: "12px 14px", background: "#f6f8fa", borderRadius: 6, border: "1px solid #e8ecf0" }}>
+                        <textarea
+                          value={responseText}
+                          onChange={(e) => setResponseText(e.target.value)}
+                          placeholder="Write a public response to this review..."
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            fontSize: 13,
+                            border: "1px solid #d0d7de",
+                            borderRadius: 6,
+                            fontFamily: "inherit",
+                            resize: "vertical",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <button
+                            onClick={() => saveResponse(reviewKey)}
+                            disabled={responseSaving || !responseText.trim()}
+                            style={{
+                              padding: "6px 14px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: responseSaving || !responseText.trim() ? "#94d3a2" : "#1a7f37",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 6,
+                              cursor: responseSaving || !responseText.trim() ? "not-allowed" : "pointer",
+                              fontFamily: "inherit",
+                            }}
+                          >
+                            {responseSaving ? "Saving..." : responses[reviewKey] ? "Update" : "Save Response"}
+                          </button>
+                          <button
+                            onClick={() => { setRespondingTo(null); setResponseText(""); }}
+                            style={{
+                              padding: "6px 14px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: "none",
+                              border: "1px solid #d0d7de",
+                              borderRadius: 6,
+                              color: "#57606a",
+                              cursor: "pointer",
+                              fontFamily: "inherit",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Respond button */}
+                    {!responses[reviewKey] && respondingTo !== reviewKey && (
+                      <button
+                        onClick={() => { setRespondingTo(reviewKey); setResponseText(""); }}
+                        style={{
+                          marginTop: 8,
+                          marginLeft: 16,
+                          padding: "4px 12px",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          background: "#f6f8fa",
+                          border: "1px solid #d0d7de",
+                          borderRadius: 4,
+                          color: "#1f6feb",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        Respond
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </>
           )}
         </div>

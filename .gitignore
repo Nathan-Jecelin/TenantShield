@@ -40,3 +40,5 @@ scripts/tenant_reviews_output*.json
 scripts/tenant_reviews_export*.csv
 scripts/*.progress.json
 scripts/*.bak.json
+scripts/address_manifest.json
+scripts/logs/

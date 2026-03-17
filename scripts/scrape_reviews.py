@@ -66,8 +66,39 @@ CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 # ── Supabase config (optional — upload when env vars present) ─────────────
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+# ── Environment loader ───────────────────────────────────────────────────
+
+
+def load_env(path: str = ".env.local") -> None:
+    """Load KEY=VALUE pairs from an env file into os.environ and refresh
+    module-level config variables. No external dependencies needed."""
+    global GOOGLE_PLACES_KEY, ANTHROPIC_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
+
+    if not os.path.exists(path):
+        return
+
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            # Strip surrounding quotes
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            os.environ[key] = value
+
+    # Refresh module-level constants from (now-updated) environment
+    GOOGLE_PLACES_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", "") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+    SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -489,6 +520,59 @@ def _empty_analysis() -> dict:
         "key_themes": [],
         "reports": [],
     }
+
+
+# ── Quick check & empty record helpers ────────────────────────────────────
+
+
+def quick_reddit_check(address: str) -> bool:
+    """Quick PullPush check to see if any Reddit mentions exist for an address.
+    Checks each subreddit individually (PullPush doesn't support comma-separated).
+    Returns True on first hit, False if no mentions found anywhere."""
+    short_addr = address.split(",")[0].strip()
+    for part in ["Chicago IL", "Chicago, IL", "Chicago"]:
+        short_addr = short_addr.replace(part, "").strip()
+
+    if not short_addr:
+        return False
+
+    for sub in SUBREDDITS:
+        data = api_get(
+            PULLPUSH_SUBMISSIONS,
+            {"q": short_addr, "subreddit": sub, "size": 1},
+            f"quick-check r/{sub} {short_addr!r}",
+        )
+        if data and isinstance(data, dict) and data.get("data"):
+            return True
+
+        data = api_get(
+            PULLPUSH_COMMENTS,
+            {"q": short_addr, "subreddit": sub, "size": 1},
+            f"quick-check-comments r/{sub} {short_addr!r}",
+        )
+        if data and isinstance(data, dict) and data.get("data"):
+            return True
+
+    return False
+
+
+def upload_empty_record(address: str) -> bool:
+    """Upload a minimal 'no results' record to Supabase so the address is
+    marked as scraped with processed_at set. Returns True on success."""
+    empty_result = {
+        "address": address,
+        "building_name": "",
+        "management_company": "",
+        "raw_review_count": 0,
+        "relevant_review_count": 0,
+        "overall_sentiment": "Neutral",
+        "overall_summary": "No relevant tenant experiences found for this building in public forums.",
+        "key_themes": [],
+        "reports": [],
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "disclaimer": DISCLAIMER,
+    }
+    return upload_to_supabase(empty_result)
 
 
 # ── Process one building ──────────────────────────────────────────────────
