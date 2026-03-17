@@ -2160,7 +2160,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                 letterSpacing: -0.5,
               }}
             >
-              Research your landlord<br />before you sign the lease.
+              Chicago Rental Property Research —<br />Search Any Address
             </h1>
             <p
               style={{
@@ -3190,7 +3190,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                     }}
                   >
                     <div>
-                      <h1
+                      <h2
                         style={{
                           fontSize: 22,
                           fontWeight: 700,
@@ -3199,7 +3199,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
                         }}
                       >
                         {ll.name}
-                      </h1>
+                      </h2>
                       <p
                         style={{
                           fontSize: 14,
@@ -3610,9 +3610,9 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             <div style={{ padding: "28px 28px 20px", borderBottom: "1px solid #e8ecf0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
                 <div style={{ flex: 1, minWidth: 280 }}>
-                  <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 6px", color: "#1f2328" }}>
+                  <h2 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 6px", color: "#1f2328" }}>
                     {addressResult.address}
-                  </h1>
+                  </h2>
                   <p style={{ fontSize: 14, color: "#57606a", margin: 0, lineHeight: 1.5 }}>
                     {neighborhood ? `${neighborhood}, ` : ""}Chicago, IL
                     {claimInfo?.company_name ? <>{" · Managed by "}{claimInfo.slug ? <a href={`/manager/${claimInfo.slug}`} style={{ color: "#0969da", textDecoration: "none" }}>{claimInfo.company_name}</a> : claimInfo.company_name}</> : ""}
@@ -5063,9 +5063,9 @@ export default function TenantShield({ initialView, initialAddress, initialData,
           </div>
         ) : (
           <div style={{ maxWidth: 540, margin: "0 auto", padding: "24px 20px" }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
               Share Your Experience
-            </h1>
+            </h2>
             <p style={{ fontSize: 14, color: "#57606a", margin: "0 0 20px" }}>
               Takes about 30 seconds. No account needed.
             </p>
@@ -6036,9 +6036,9 @@ export default function TenantShield({ initialView, initialAddress, initialData,
               .admin-two-col { grid-template-columns: 1fr; }
             }
           `}</style>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1f2328", margin: "0 0 4px" }}>
             Admin Dashboard
-          </h1>
+          </h2>
           <p style={{ fontSize: 14, color: "#8b949e", margin: "0 0 16px" }}>
             Site analytics and activity overview
           </p>

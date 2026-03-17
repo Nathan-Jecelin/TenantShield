@@ -4,14 +4,14 @@ import GoogleAnalytics from "@/components/GoogleAnalytics";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TenantShield — Look Up Building Violations for Any Chicago Address",
+  title: "MyTenantShield — Free Chicago Rental Research Tool",
   description:
-    "Free tool to search building violations, 311 complaints, and tenant reviews for Chicago rental properties before you sign a lease.",
+    "Search any Chicago address for building violations, 311 complaints, and permit history. Free tenant research tool for Chicago renters.",
   metadataBase: new URL("https://mytenantshield.com"),
   openGraph: {
-    title: "TenantShield — Look Up Building Violations for Any Chicago Address",
+    title: "MyTenantShield — Free Chicago Rental Research Tool",
     description:
-      "Free tool to search building violations, 311 complaints, and tenant reviews for Chicago rental properties before you sign a lease.",
+      "Search any Chicago address for building violations, 311 complaints, and permit history. Free tenant research tool for Chicago renters.",
     url: "https://mytenantshield.com",
     siteName: "TenantShield",
     type: "website",
@@ -27,9 +27,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "TenantShield — Look Up Building Violations for Any Chicago Address",
+    title: "MyTenantShield — Free Chicago Rental Research Tool",
     description:
-      "Free tool to search building violations, 311 complaints, and tenant reviews for Chicago rental properties before you sign a lease.",
+      "Search any Chicago address for building violations, 311 complaints, and permit history. Free tenant research tool for Chicago renters.",
     images: ["/twitter-image"],
   },
   verification: {
@@ -52,7 +52,7 @@ export default function RootLayout({
     name: "TenantShield",
     url: "https://mytenantshield.com",
     description:
-      "Free tool to search building violations, 311 complaints, and tenant reviews for Chicago rental properties before you sign a lease.",
+      "Search any Chicago address for building violations, 311 complaints, and permit history. Free tenant research tool for Chicago renters.",
     potentialAction: {
       "@type": "SearchAction",
       target: "https://mytenantshield.com/?q={search_term_string}",
