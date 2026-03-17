@@ -1,4 +1,10 @@
-export const metadata = { title: "Privacy Policy — TenantShield" };
+export const metadata = {
+  title: "Privacy Policy — TenantShield",
+  description: "How TenantShield collects, uses, and protects your data. Read our full privacy policy.",
+  alternates: {
+    canonical: "https://mytenantshield.com/privacy",
+  },
+};
 
 export default function Privacy() {
   return (

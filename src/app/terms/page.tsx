@@ -1,4 +1,10 @@
-export const metadata = { title: "Terms of Service — TenantShield" };
+export const metadata = {
+  title: "Terms of Service — TenantShield",
+  description: "Terms of service for using TenantShield, a free Chicago rental property research tool.",
+  alternates: {
+    canonical: "https://mytenantshield.com/terms",
+  },
+};
 
 export default function Terms() {
   return (

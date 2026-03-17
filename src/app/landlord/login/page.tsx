@@ -5,14 +5,7 @@ export const metadata: Metadata = {
   title: "Log In — TenantShield",
   description:
     "Log in to your TenantShield landlord dashboard. Manage your buildings, monitor violations, and respond to tenant concerns.",
-  openGraph: {
-    title: "Log In — TenantShield",
-    description:
-      "Log in to your TenantShield landlord dashboard.",
-    url: "https://mytenantshield.com/landlord/login",
-    siteName: "TenantShield",
-    type: "website",
-  },
+  robots: { index: false, follow: false },
 };
 
 export default function LandlordLoginPage() {

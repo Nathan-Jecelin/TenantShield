@@ -13,6 +13,9 @@ export const metadata: Metadata = {
     siteName: "TenantShield",
     type: "website",
   },
+  alternates: {
+    canonical: "https://mytenantshield.com/blog",
+  },
 };
 
 export default function BlogPage() {
