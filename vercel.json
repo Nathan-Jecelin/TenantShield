@@ -33,6 +33,30 @@
     {
       "path": "/api/reports/followup",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-sitemap?chunk=0",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-sitemap?chunk=1",
+      "schedule": "2 3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-sitemap?chunk=2",
+      "schedule": "4 3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-sitemap?chunk=3",
+      "schedule": "6 3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-sitemap?chunk=4",
+      "schedule": "8 3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-sitemap?chunk=5",
+      "schedule": "10 3 * * *"
     }
   ]
 }

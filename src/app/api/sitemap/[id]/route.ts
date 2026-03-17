@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase-server";
 import {
-  URLS_PER_SITEMAP,
   SITEMAP_CHUNKS,
-  fetchAddressChunk,
   getNonAddressPages,
   entriesToXml,
 } from "@/lib/sitemapData";
@@ -20,15 +19,41 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const entries =
-    id === 0
-      ? await getNonAddressPages()
-      : await fetchAddressChunk((id - 1) * URLS_PER_SITEMAP, URLS_PER_SITEMAP);
+  // Try to serve from Supabase cache first
+  const sb = getSupabaseServer();
+  if (sb) {
+    const { data } = await sb
+      .from("sitemap_cache")
+      .select("xml_content")
+      .eq("chunk_id", id)
+      .single();
 
-  return new NextResponse(entriesToXml(entries), {
+    if (data?.xml_content) {
+      return new NextResponse(data.xml_content, {
+        headers: {
+          "Content-Type": "application/xml",
+          "Cache-Control": "public, max-age=86400, s-maxage=86400",
+        },
+      });
+    }
+  }
+
+  // Fallback: chunk 0 can always be generated live (fast Supabase queries)
+  if (id === 0) {
+    const entries = await getNonAddressPages();
+    return new NextResponse(entriesToXml(entries), {
+      headers: {
+        "Content-Type": "application/xml",
+        "Cache-Control": "public, max-age=86400, s-maxage=86400",
+      },
+    });
+  }
+
+  // Address chunks with no cache — return empty sitemap rather than timing out
+  return new NextResponse(entriesToXml([]), {
     headers: {
       "Content-Type": "application/xml",
-      "Cache-Control": "public, max-age=86400, s-maxage=86400",
+      "Cache-Control": "public, max-age=3600, s-maxage=3600",
     },
   });
 }
