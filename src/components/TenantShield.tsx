@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import { getSupabase } from "@/lib/supabase";
 import { useChicagoData, useChicagoResultsCounts } from "@/hooks/useChicagoData";
-import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, searchAddresses, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
+import { parseStreetAddress, generateAddressVariants, fetchBuildingViolations, fetchServiceRequests, fetchBuildingPermits, matchNeighborhood, fetchFullNeighborhoodData, searchAddresses, isAddressSuppressed, BuildingViolation, ServiceRequest, BuildingPermit, NeighborhoodResult } from "@/lib/chicagoData";
 import { useAuth } from "@/hooks/useAuth";
 import CityRecords from "@/components/CityRecords";
 import { trackEvent, trackAddressView } from "@/lib/analytics";
@@ -838,7 +838,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
   const [showAllNhViolations, setShowAllNhViolations] = useState(false);
   const [showAllNhComplaints, setShowAllNhComplaints] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
-  const [showGiveawayBanner, setShowGiveawayBanner] = useState(true);
+
   const [showReviewPrompt, setShowReviewPrompt] = useState(false);
   const [showReportPrompt, setShowReportPrompt] = useState(false);
   const [reportEmail, setReportEmail] = useState('');
@@ -1476,7 +1476,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
       if (!neighborhoodMatch) {
         try {
           const parsed = parseStreetAddress(q || query);
-          if (parsed) {
+          if (parsed && !isAddressSuppressed(parsed)) {
             const variants = generateAddressVariants(parsed);
             const [violations, complaints, permits] = await Promise.all([
               fetchBuildingViolations(variants),
@@ -1517,7 +1517,7 @@ export default function TenantShield({ initialView, initialAddress, initialData,
             const uniqueAddresses: { raw: string; parsed: string; variants: string[] }[] = [];
             for (const addr of placeAddresses) {
               const parsed = parseStreetAddress(addr);
-              if (parsed && !seen.has(parsed)) {
+              if (parsed && !seen.has(parsed) && !isAddressSuppressed(parsed)) {
                 seen.add(parsed);
                 uniqueAddresses.push({ raw: addr, parsed, variants: generateAddressVariants(parsed) });
               }
@@ -2006,55 +2006,6 @@ export default function TenantShield({ initialView, initialAddress, initialData,
         </div>
       </nav>
 
-      {/* Giveaway Banner */}
-      {showGiveawayBanner && (view === "home" || view === "address-profile" || view === "results") && (
-        <div
-          style={{
-            background: "linear-gradient(135deg, #1a56db, #7c3aed)",
-            color: "#fff",
-            padding: "10px 20px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            position: "relative",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          <div
-            onClick={goReview}
-            style={{ cursor: "pointer", textAlign: "center" }}
-          >
-            <div style={{ lineHeight: 1.4 }}>
-              🎁 Leave a review and enter to win a $25 Amazon gift card! Winner drawn March 31st.
-            </div>
-            <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
-              No purchase necessary. One entry per review. Winner chosen randomly. Must be 18+.
-            </div>
-          </div>
-          <button
-            onClick={() => setShowGiveawayBanner(false)}
-            style={{
-              position: "absolute",
-              right: 12,
-              top: "50%",
-              transform: "translateY(-50%)",
-              background: "none",
-              border: "none",
-              color: "rgba(255,255,255,0.7)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: "4px 8px",
-              lineHeight: 1,
-              fontFamily: "inherit",
-            }}
-            title="Dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       {view !== "home" && (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "12px 20px 0" }}>

@@ -91,6 +91,17 @@ for (const [full, abbr] of Object.entries(DIRECTIONS)) {
   DIR_ABBR_TO_FULL[abbr] = full;
 }
 
+// Addresses that owners have asked us to remove from the site (e.g. not actually
+// rental properties). Compared against the output of parseStreetAddress, so values
+// must be in the normalized "NUMBER DIR STREET TYPE" form.
+export const SUPPRESSED_ADDRESSES = new Set<string>([
+  "5532 S MASON AVE",
+]);
+
+export function isAddressSuppressed(address: string): boolean {
+  return SUPPRESSED_ADDRESSES.has(parseStreetAddress(address));
+}
+
 export function parseStreetAddress(full: string): string {
   let street = full.split(",")[0].trim().toUpperCase();
   // Remove periods (e.g. "St." → "ST")

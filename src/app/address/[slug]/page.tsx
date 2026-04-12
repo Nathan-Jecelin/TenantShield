@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { cache } from "react";
+import { notFound } from "next/navigation";
 import { slugToAddress, addressToSlug } from "@/lib/slugs";
 import {
   parseStreetAddress,
@@ -10,6 +11,7 @@ import {
   fetchCommunityAreaForAddress,
   fetchNearbyAddresses,
   neighborhoodNameToSlug,
+  isAddressSuppressed,
   type BuildingViolation,
   type ServiceRequest,
   type BuildingPermit,
@@ -34,7 +36,7 @@ export async function generateStaticParams() {
     if (!res.ok) return [];
     const rows: { address: string }[] = await res.json();
     return rows
-      .filter((r) => r.address)
+      .filter((r) => r.address && !isAddressSuppressed(r.address))
       .map((r) => ({ slug: addressToSlug(r.address) }));
   } catch {
     return [];
@@ -73,6 +75,9 @@ const getAddressData = cache(async (address: string) => {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const address = slugToAddress(slug);
+  if (isAddressSuppressed(address)) {
+    return { title: "Not found", robots: { index: false, follow: false } };
+  }
   const { violations, complaints, neighborhood } = await getAddressData(address);
 
   const vCount = violations.length;
@@ -116,6 +121,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function AddressPage({ params }: PageProps) {
   const { slug } = await params;
   const address = slugToAddress(slug);
+  if (isAddressSuppressed(address)) notFound();
   const { violations, complaints, permits, neighborhood, neighborhoodInfo, nearbyBuildings } =
     await getAddressData(address);
 

@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NEIGHBORHOOD_DATA } from "@/lib/neighborhoodData";
-import { neighborhoodNameToSlug } from "@/lib/chicagoData";
+import { neighborhoodNameToSlug, isAddressSuppressed } from "@/lib/chicagoData";
 
 export const BASE_URL = "https://mytenantshield.com";
 export const URLS_PER_SITEMAP = 50_000;
@@ -52,6 +52,7 @@ export async function fetchAddressChunk(
     const entries: SitemapEntry[] = [];
     for (const row of rows) {
       if (!row.address) continue;
+      if (isAddressSuppressed(row.address)) continue;
       const slug = addressToSlug(row.address);
       if (seen.has(slug)) continue;
       seen.add(slug);
